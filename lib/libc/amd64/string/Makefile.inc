@@ -1,5 +1,6 @@
 # $FreeBSD$
 
+SRCS+=	archlevel.c
 MDSRCS+= \
 	bcmp.S \
 	memcmp.S \
