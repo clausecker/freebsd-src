@@ -105,7 +105,8 @@ match_archlevel(const char *str)
 
 		/* can't use strcmp here: would recurse during ifunc resolution */
 		for (i = 0; str[i] == candidate[i]; i++)
-			if (str[i] == '\0')
+			/* suffixes starting with : or + are ignored for future extensions */
+			if (str[i] == '\0' || str[i] == ':' || str[i] == '+')
 				return (level);
 	}
 
