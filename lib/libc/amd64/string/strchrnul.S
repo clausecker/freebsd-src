@@ -37,6 +37,7 @@
 
 ARCHFUNCS(__strchrnul)
         ARCHFUNC(__strchrnul, scalar)
+	ARCHFUNC(__strchrnul, baseline)
 ENDARCHFUNCS(__strchrnul)
 
 /*
@@ -96,3 +97,41 @@ ARCHENTRY(__strchrnul, scalar)
 	lea	-8(%rdi, %rax, 1), %rax	# pointer to found c or NUL
 	ret
 ARCHEND(__strchrnul, scalar)
+
+ARCHENTRY(__strchrnul, baseline)
+	movd		%esi, %xmm0
+	mov		%edi, %ecx
+	and		$~0xf, %rdi		# align to 16 byte
+	movdqa		(%rdi), %xmm1
+	and		$0xf, %ecx		# distance from (%rdi) to start of string
+	punpcklbw	%xmm0, %xmm0		# c -> cc
+	mov		$-1, %edx
+	punpcklwd	%xmm0, %xmm0		# cc -> cccc
+	shl		%cl, %edx		# bits corresponding to bytes in the string
+	pshufd		$0, %xmm0, %xmm0	# cccc -> cccccccccccccccc
+
+	/* check for match in head */
+	add		$16, %rdi
+	pxor		%xmm2, %xmm2
+	pcmpeqb		%xmm1, %xmm2		# NUL bytes present?
+	pcmpeqb		%xmm0, %xmm1		# c present?
+	por		%xmm2, %xmm1		# either present?
+	pmovmskb	%xmm1, %eax
+	and		%edx, %eax		# match in the string?
+	jnz		0f
+
+	ALIGN_TEXT
+1:	movdqa		(%rdi), %xmm1
+	add		$16, %rdi
+	pxor		%xmm2, %xmm2
+	pcmpeqb		%xmm1, %xmm2		# NUL bytes present?
+	pcmpeqb		%xmm0, %xmm1		# c present?
+	por		%xmm2, %xmm1		# either present?
+	pmovmskb	%xmm1, %eax
+	test		%eax, %eax		# match in the string?
+	jz		1b
+
+0:	tzcnt		%eax, %eax		# where is the match?
+	lea		-16(%rdi, %rax, 1), %rax # pointer to found c or NUL
+	ret
+ARCHEND(__strchrnul, baseline)
