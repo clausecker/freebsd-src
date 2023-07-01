@@ -40,7 +40,8 @@ ARCHFUNCS(__strchrnul)
 ENDARCHFUNCS(__strchrnul)
 
 /*
- * This is implemented like strlen(str, c), but we check for the
+ * strchrnul(str, c)
+ * This is implemented like strlen(str), but we check for the
  * presence of both NUL and c in each iteration.
  */
 ARCHENTRY(__strchrnul, scalar)
@@ -48,11 +49,17 @@ ARCHENTRY(__strchrnul, scalar)
 	movabs	$0x0101010101010101, %r8
 	movabs	$0x8080808080808080, %r9
 	imul	%r8, %rsi		# replicate char 8 times
-	xor	$-1, %r8		# negate 01..01 so we can use lea
+	not	%r8			# negate 01..01 so we can use lea
 
 	test	$7, %dil		# input already aligned?
 	jz	1f
 
+	/*
+	 * Unaligned input: align to 8 bytes and mask out bytes before the
+	 * beginning of the string so they don't cause a false match.
+	 * We mask with 0xff unless c is 0xff, in which case we then clear
+	 * the MSB of each masked out byte to not match 0xff.
+	 */
 	mov	%edi, %ecx
 	and	$~7, %rdi		# align to 8 bytes
 	mov	(%rdi), %rax
@@ -77,15 +84,14 @@ ARCHENTRY(__strchrnul, scalar)
 	lea	(%r10, %r8, 1), %r11	# (str ^ c) - 0x01..01
 	not	%rax			# ~str
 	not	%r10			# ~(str ^ c)
-	and	%r9, %rax		# ~str & 0x80..80
-	and	%r9, %r10		# ~(str ^ c) & 0x80..80
-	and	%rdx, %rax		# (str - 0x01..01) & ~str & 0x80..80
-	and	%r11, %r10		# ((str ^ c - 0x01..01) & ~(str ^ c) & 0x80..80
-	or	%r10, %rax		# NUL byte or c found?
+	and	%rdx, %rax		# (str - 0x01..01) & ~str
+	and	%r11, %r10		# ((str ^ c - 0x01..01) & ~(str ^ c)
+	or	%r10, %rax		# matches for both
+	and	%r9, %rax		# not including junk bytes
 	jz	1b
 
 	/* NUL or c found */
-2:	bsf	%rax, %rax		# first NUL or c byte match
+	tzcnt	%rax, %rax		# first NUL or c byte match
 	shr	$3, %eax		# scale from bit to byte index
 	lea	-8(%rdi, %rax, 1), %rax	# pointer to found c or NUL
 	ret
