@@ -50,49 +50,52 @@ ARCHENTRY(__strchrnul, scalar)
 	movabs	$0x0101010101010101, %r8
 	movabs	$0x8080808080808080, %r9
 	imul	%r8, %rsi		# replicate char 8 times
-	not	%r8			# negate 01..01 so we can use lea
-
-	test	$7, %dil		# input already aligned?
-	jz	1f
+	neg	%r8			# negate 01..01 so we can use lea
 
 	/*
-	 * Unaligned input: align to 8 bytes and mask out bytes before the
-	 * beginning of the string so they don't cause a false match.
-	 * We mask with 0xff unless c is 0xff, in which case we then clear
-	 * the MSB of each masked out byte to not match 0xff.
+	 * Unaligned input: align to 8 bytes.  Then proceed the same
+	 * way as with aligned input, but ignore matches before the
+	 * beginning of the string.  This is achieved by shifting r9
+	 * into r10 to have 0x00 bytes before the string begins.
 	 */
 	mov	%edi, %ecx
-	and	$~7, %rdi		# align to 8 bytes
+	and	$~7, %rdi		# align to 8 byte
+	shl	$3, %ecx
 	mov	(%rdi), %rax
-	shl	$3, %ecx		# start of string in (%rdi) as number of bits
-	mov	$-1, %rdx		# 0xff..ff to mask out undesired bits
-	shl	%cl, %rdx		# 0xff where the string is
-	not	%rdx			# 0xff where the string is not
-	or	%rdx, %rax		# string with 0xff before it
-	and	%r9, %rdx		# 0x80 where the string is not
-	xor	%rax, %rdx		# string with 0x7f before it
-	cmp	$0xff, %sil		# c == 0xff?
-	cmove	%rdx, %rax		# if equal mask with 0x7f, else with 0xff
-	jmp	0f
+	mov	%r9, %r10
+	add	$8, %rdi
+	shl	%cl, %r10		# 0x80 where the string is
+
+	mov	%rsi, %rcx
+	xor	%rax, %rcx		# str ^ c
+	lea	(%rax, %r8, 1), %rdx	# str - 0x01..01
+	lea	(%rcx, %r8, 1), %r11	# (str ^ c) - 0x01..01
+	not	%rax			# ~str
+	not	%rcx			# ~(str ^ c)
+	and	%rdx, %rax		# (str - 0x01..01) & ~str
+	and	%r11, %rcx		# ((str ^ c - 0x01..01) & ~(str ^ c)
+	or	%rcx, %rax		# matches for both
+	and	%r10, %rax		# not including junk bytes or bytes before the string
+	jnz	2f
 
 	/* main loop */
 	ALIGN_TEXT
 1:	mov	(%rdi), %rax		# str
 0:	add	$8, %rdi
-	mov	%rsi, %r10
-	xor	%rax, %r10		# str ^ c
+	mov	%rsi, %rcx
+	xor	%rax, %rcx		# str ^ c
 	lea	(%rax, %r8, 1), %rdx	# str - 0x01..01
-	lea	(%r10, %r8, 1), %r11	# (str ^ c) - 0x01..01
+	lea	(%rcx, %r8, 1), %r11	# (str ^ c) - 0x01..01
 	not	%rax			# ~str
-	not	%r10			# ~(str ^ c)
+	not	%rcx			# ~(str ^ c)
 	and	%rdx, %rax		# (str - 0x01..01) & ~str
-	and	%r11, %r10		# ((str ^ c - 0x01..01) & ~(str ^ c)
-	or	%r10, %rax		# matches for both
+	and	%r11, %rcx		# ((str ^ c - 0x01..01) & ~(str ^ c)
+	or	%rcx, %rax		# matches for both
 	and	%r9, %rax		# not including junk bytes
 	jz	1b
 
 	/* NUL or c found */
-	tzcnt	%rax, %rax		# first NUL or c byte match
+2:	tzcnt	%rax, %rax		# first NUL or c byte match
 	shr	$3, %eax		# scale from bit to byte index
 	lea	-8(%rdi, %rax, 1), %rax	# pointer to found c or NUL
 	ret
