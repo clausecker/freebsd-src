@@ -138,3 +138,5 @@ ARCHENTRY(__strchrnul, baseline)
 	lea		-16(%rdi, %rax, 1), %rax # pointer to found c or NUL
 	ret
 ARCHEND(__strchrnul, baseline)
+
+	.section .note.GNU-stack,"",%progbits
