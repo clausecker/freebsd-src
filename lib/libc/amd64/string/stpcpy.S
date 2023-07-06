@@ -199,41 +199,35 @@ ARCHENTRY(__stpcpy, baseline)
 
 	/* transfer 16--32 bytes */
 .L1632:	movdqu	-15(%rsi, %rax, 1), %xmm0 # load last 16 bytes
-	movdqu	%xmm2, (%rdx)		# store first 16 bytes
-	movdqu	%xmm0, -15(%rdx, %rax, 1) # store last 16 bytes
 	add	%rdx, %rax		# point to NUL byte
+	movdqu	%xmm2, (%rdx)		# store first 16 bytes
+	movdqu	%xmm0, -15(%rax)	# store last 16 bytes
 	ret
 
 	/* transfer 8--15 bytes */
 .L0815:	mov	(%rsi), %rcx		# load first 8 bytes
 	mov	-7(%rsi, %rax, 1), %rdi	# load last 8 bytes
-	mov	%rcx, (%rdx)		# store to dst
-	mov	%rdi, -7(%rdx, %rax, 1)	# dito
 	add	%rdx, %rax		# point to NUL byte
+	mov	%rcx, (%rdx)		# store to dst
+	mov	%rdi, -7(%rax)		# dito
 	ret
 
 	/* transfer 4--7 bytes */
 .L0407:	mov	(%rsi), %ecx
 	mov	-3(%rsi, %rax, 1), %edi
-	mov	%ecx, (%rdx)
-	mov	%edi, -3(%rdx, %rax, 1)
 	add	%rdx, %rax
+	mov	%ecx, (%rdx)
+	mov	%edi, -3(%rax)
 	ret
 
-	/* transfer 2--3 bytes */
+	/* transfer 2--3 bytes, or just 1 byte */
 .L0203:	movzwl	(%rsi), %ecx
 	mov	%cx, (%rdx)		# store first two bytes
-	movb	$0, (%rdx, %rax, 1)	# store terminating NUL byte
-	add	%rdx, %rax
+.L0101:	add	%rdx, %rax
+	movb	$0, (%rax)		# store terminating NUL byte
 	ret
 
-	/* "transfer" single byte string */
-.L0101:	movb	$0, (%rdx)		# single byte string is always "\0"
-	mov	%rdx, %rax
-	ret
-ARCHEND(__stpcpy, baseline)
-
-	/* this is RIP relative and must be right after __stpcpy_baseline */
+	/* RIP-relative jump table, must be colocated with text */
 .Lbaselinejumps:
 	.byte	.L1632-.Lbaselinejumps
 	.byte	.L1632-.Lbaselinejumps
@@ -241,5 +235,6 @@ ARCHEND(__stpcpy, baseline)
 	.byte	.L0407-.Lbaselinejumps
 	.byte	.L0203-.Lbaselinejumps
 	.byte	.L0101-.Lbaselinejumps
+ARCHEND(__stpcpy, baseline)
 
 	.section .note.GNU-stack,"",%progbits
