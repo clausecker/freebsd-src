@@ -139,7 +139,7 @@ ARCHENTRY(__stpcpy, baseline)
 	pcmpeqb	%xmm1, %xmm0		# NUL byte present?
 	pmovmskb %xmm0, %eax
 	shr	%cl, %eax		# clear out matches in junk bytes
-	bsf	%eax, %eax		# any match?
+	bsf	%eax, %eax		# find match if any
 	jnz	.Lrunt
 
 	/* first iteration: write head back if it succeeds */
@@ -148,83 +148,98 @@ ARCHENTRY(__stpcpy, baseline)
 	pxor	%xmm1, %xmm1
 	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
 	pmovmskb %xmm0, %eax
-	test	%eax, %eax
+	bsf	%eax, %eax		# find match if any
 	jnz	.Lshorty
 
 	movdqu	%xmm2, (%rdx)		# store beginning of string
-	add	$16, %rsi		# advance to next iteration
 
-	/* main loop */
+	/* main loop, unrolled twice */
 	ALIGN_TEXT
-0:	movdqu	%xmm0, (%rsi, %rdi, 1) # write back previous iteraion
-	movdqa	16(%rsi), %xmm0		# load current iteraion
+0:	movdqa	32(%rsi), %xmm0		# load current iteraion
+	movdqu	%xmm0, 16(%rsi, %rdi, 1) # write back previous iteraion
 	pxor	%xmm1, %xmm1
-	add	$16, %rsi
+	add	$32, %rsi
+	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
+	pmovmskb %xmm0, %eax
+	test	%eax, %eax
+	jnz	1f
+
+	movdqa	16(%rsi), %xmm0		# load current iteraion
+	movdqu	%xmm0, (%rsi, %rdi, 1)	# write back previous iteraion
+	pxor	%xmm1, %xmm1
 	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
 	pmovmskb %xmm0, %eax
 	test	%eax, %eax
 	jz	0b
 
 	/* end of string after main loop has iterated */
-	tzcnt	%eax, %eax
+	add	$16, %rsi		# advance rsi to second unrolled half
+1:	tzcnt	%eax, %eax		# find location of match
 	add	%rsi, %rax		# point to NUL byte
 	movdqu	-15(%rax), %xmm0	# last 16 bytes of string
 	movdqu	%xmm0, -15(%rax, %rdi, 1) # copied to destination
 	add	%rdi, %rax		# point to destination's NUL byte
 	ret
 
-	/* string spans two 16-byte lanes and is 2--32 bytes long */
+	/* NUL encountered in second iteration */
 .Lshorty:
-	bsf	%eax, %eax		# bytes in second lane before NUL byte
-	add	$16, %eax		# bytes in both lanes before NUL byte
-	sub	%ecx, %eax		# LEN-1
-	cmp	$16, %eax
-	jbe	.Lrunt			# if less than 16 bytes, use runt logic
+	add	$16, %eax		# account for length of first iteration
+	sub	%ecx, %eax		# but not the parts before the string
 
-	/* string has 16--32 bytes: use two overlapping 16-byte moves */
-	add	%rax, %rcx
-	movdqu	-15(%rsi, %rcx, 1), %xmm0 # last 16 bytes of string
-	movdqu	%xmm2, (%rdx)		# deposit first 16 bytes of string
-	movdqu	%xmm0, -15(%rdx, %rax, 1) # deposit last 16 bytes of string
+	/* NUL encountered in first iteration */
+.Lrunt:	lea	1(%rax), %edi		# string length including NUL byte
+	add	%rcx, %rsi		# point to beginning of string
+	lzcnt	%edi, %edi		# classify length into buckets:
+					# 1, 2-3, 4-7, 8-15, 16-31, 32 bytes
+	/* .Lbaselinejumps adjusted such that index lzcnt(32) corresponds to the first entry */
+	lea	.Lbaselinejumps-26(%rip), %rcx
+	movsbq	(%rcx, %rdi, 1), %rdi
+	add	%rcx, %rdi
+	jmp	*%rdi
+
+	/* transfer 16--32 bytes */
+.L1632:	movdqu	-15(%rsi, %rax, 1), %xmm0 # load last 16 bytes
+	movdqu	%xmm2, (%rdx)		# store first 16 bytes
+	movdqu	%xmm0, -15(%rdx, %rax, 1) # store last 16 bytes
+	add	%rdx, %rax		# point to NUL byte
 	ret
 
-	/* runt: string has 1--16 bytes */
-.Lrunt:	add	%rcx, %rsi		# pointer to beginning of string
-	cmp	$8, %eax		# copy with two overlapping moves if possible
-	jb	1f
-
-	/* 8--16 bytes to copy: use two overlapping 8-byte moves */
-	mov	(%rsi), %rcx		# load first 8 bytes of string
-	mov	%rcx, (%rdx)		# deposit 8 bytes into output
-	mov	-7(%rsi, %rax, 1), %rcx	# load last 8 bytes of string
-	mov	%rcx, -7(%rdx, %rax, 1)	# and deposit
-	add	%rdx, %rax		# point to NUL byte in dst
+	/* transfer 8--15 bytes */
+.L0815:	mov	(%rsi), %rcx		# load first 8 bytes
+	mov	-7(%rsi, %rax, 1), %rdi	# load last 8 bytes
+	mov	%rcx, (%rdx)		# store to dst
+	mov	%rdi, -7(%rdx, %rax, 1)	# dito
+	add	%rdx, %rax		# point to NUL byte
 	ret
 
-	/* 1--7 bytes to copy: use a move sled */
-1:	add	%rax, %rsi		# pointer to NUL byte in src
-	shl	$3, %eax		# 8*(LEN - 1)
-	lea	2f(%rip), %rdx		# pointer to copy 1 bytes
-	sub	%rax, %rdx		# pointer to copy LEN bytes
-	jmp	*%rdx
+	/* transfer 4--7 bytes */
+.L0407:	mov	(%rsi), %ecx
+	mov	-3(%rsi, %rax, 1), %edi
+	mov	%ecx, (%rdx)
+	mov	%edi, -3(%rdx, %rax, 1)
+	add	%rdx, %rax
+	ret
 
-#define MOVE(offset) \
-	.p2align 3; \
-	movzbl	offset(%rsi), %eax; \
-	mov	%al, offset(%rsi, %rdi, 1)
+	/* transfer 2--3 bytes */
+.L0203:	movzwl	(%rsi), %ecx
+	mov	%cx, (%rdx)		# store first two bytes
+	movb	$0, (%rdx, %rax, 1)	# store terminating NUL byte
+	add	%rdx, %rax
+	ret
 
-	/* move slide: each entry copies 1 byte and is 8 bytes long */
-	MOVE(-7)
-	MOVE(-6)
-	MOVE(-5)
-	MOVE(-4)
-	MOVE(-3)
-	MOVE(-2)
-	MOVE(-1)
-2:	MOVE(0)
-
-	lea	(%rsi, %rdi, 1), %rax	# pointer to NUL byte in dst
+	/* "transfer" single byte string */
+.L0101:	movb	$0, (%rdx)		# single byte string is always "\0"
+	mov	%rdx, %rax
 	ret
 ARCHEND(__stpcpy, baseline)
-	
+
+	/* this is RIP relative and must be right after __stpcpy_baseline */
+.Lbaselinejumps:
+	.byte	.L1632-.Lbaselinejumps
+	.byte	.L1632-.Lbaselinejumps
+	.byte	.L0815-.Lbaselinejumps
+	.byte	.L0407-.Lbaselinejumps
+	.byte	.L0203-.Lbaselinejumps
+	.byte	.L0101-.Lbaselinejumps
+
 	.section .note.GNU-stack,"",%progbits
