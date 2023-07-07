@@ -154,17 +154,17 @@ ARCHENTRY(__stpcpy, baseline)
 
 	/* main loop, unrolled twice */
 	ALIGN_TEXT
-0:	movdqa	32(%rsi), %xmm0		# load current iteraion
+0:	movdqa	32(%rsi), %xmm2		# load current iteraion
 	movdqu	%xmm0, 16(%rsi, %rdi, 1) # write back previous iteraion
 	pxor	%xmm1, %xmm1
 	add	$32, %rsi
-	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
+	pcmpeqb	%xmm2, %xmm1		# NUL byte present?
 	pmovmskb %xmm1, %eax
 	test	%eax, %eax
 	jnz	1f
 
 	movdqa	16(%rsi), %xmm0		# load current iteraion
-	movdqu	%xmm0, (%rsi, %rdi, 1)	# write back previous iteraion
+	movdqu	%xmm2, (%rsi, %rdi, 1)	# write back previous iteraion
 	pxor	%xmm1, %xmm1
 	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
 	pmovmskb %xmm1, %eax
