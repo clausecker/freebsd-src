@@ -145,9 +145,8 @@ ARCHENTRY(__stpcpy, baseline)
 	/* first iteration: write head back if it succeeds */
 	movdqa	16(%rsi), %xmm0		# 16 bytes of current iteration
 	movdqu	(%rsi, %rcx, 1), %xmm2	# first 16 bytes of the string
-	pxor	%xmm1, %xmm1
 	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
-	pmovmskb %xmm0, %eax
+	pmovmskb %xmm1, %eax
 	bsf	%eax, %eax		# find match if any
 	jnz	.Lshorty
 
@@ -160,7 +159,7 @@ ARCHENTRY(__stpcpy, baseline)
 	pxor	%xmm1, %xmm1
 	add	$32, %rsi
 	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
-	pmovmskb %xmm0, %eax
+	pmovmskb %xmm1, %eax
 	test	%eax, %eax
 	jnz	1f
 
@@ -168,7 +167,7 @@ ARCHENTRY(__stpcpy, baseline)
 	movdqu	%xmm0, (%rsi, %rdi, 1)	# write back previous iteraion
 	pxor	%xmm1, %xmm1
 	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
-	pmovmskb %xmm0, %eax
+	pmovmskb %xmm1, %eax
 	test	%eax, %eax
 	jz	0b
 
@@ -191,9 +190,8 @@ ARCHENTRY(__stpcpy, baseline)
 	add	%rcx, %rsi		# point to beginning of string
 	lzcnt	%edi, %edi		# classify length into buckets:
 					# 1, 2-3, 4-7, 8-15, 16-31, 32 bytes
-	/* .Lbaselinejumps adjusted such that index lzcnt(32) corresponds to the first entry */
-	lea	.Lbaselinejumps-26(%rip), %rcx
-	movsbq	(%rcx, %rdi, 1), %rdi
+	lea	.Lbaselinejumps(%rip), %rcx
+	movsbq	-26(%rcx, %rdi, 1), %rdi # table indexed such that lzcnt(32) is first entry index
 	add	%rcx, %rdi
 	jmp	*%rdi
 
