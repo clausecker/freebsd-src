@@ -124,3 +124,11 @@ if [ -f "$OBJTOP"/secure/lib/libcrypto/aria.o ]; then
 	    "$OBJTOP"/obj-lib32/secure/lib/libcrypto \
 	    "$OBJTOP"/obj-lib32/secure/lib/libssl
 fi
+
+# 20230707  ee8b0c436d72    ffs/fls replaced
+clean_dep   lib/libc        ffs   S
+clean_dep   lib/libc        ffsl  S
+clean_dep   lib/libc        ffsll S
+clean_dep   lib/libc        fls   S
+clean_dep   lib/libc        flsl  S
+clean_dep   lib/libc        flsll S
