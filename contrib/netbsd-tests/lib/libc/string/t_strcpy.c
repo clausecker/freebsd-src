@@ -2,6 +2,10 @@
 
 /*
  * Written by J.T. Conklin <jtc@acorntoolworks.com>
+ *
+ * Portions of this software were developed by Robert Clausecker
+ * <fuz@FreeBSD.org> under sponsorship from the FreeBSD Foundation.
+ *
  * Public domain.
  */
 
@@ -24,8 +28,8 @@ ATF_TC_BODY(strcpy_basic, tc)
 {
 	void *dl_handle;
 	unsigned int a0, a1, t;
-	char buf0[64];
-	char buf1[64];
+	char buf0[128];
+	char buf1[128];
 	char *ret;
 
 	struct tab {
@@ -39,30 +43,38 @@ ATF_TC_BODY(strcpy_basic, tc)
 		 * trailing unaligned characters (on a 64 bit processor)
 		 */
 
-		{ "",				0 },
-		{ "a",				1 },
-		{ "ab",				2 },
-		{ "abc",			3 },
-		{ "abcd",			4 },
-		{ "abcde",			5 },
-		{ "abcdef",			6 },
-		{ "abcdefg",			7 },
-		{ "abcdefgh",			8 },
-		{ "abcdefghi",			9 },
-		{ "abcdefghij",			10 },
-		{ "abcdefghijk",		11 },
-		{ "abcdefghijkl",		12 },
-		{ "abcdefghijklm",		13 },
-		{ "abcdefghijklmn",		14 },
-		{ "abcdefghijklmno",		15 },
-		{ "abcdefghijklmnop",		16 },
-		{ "abcdefghijklmnopq",		17 },
-		{ "abcdefghijklmnopqr",		18 },
-		{ "abcdefghijklmnopqrs",	19 },
-		{ "abcdefghijklmnopqrst",	20 },
-		{ "abcdefghijklmnopqrstu",	21 },
-		{ "abcdefghijklmnopqrstuv",	22 },
-		{ "abcdefghijklmnopqrstuvw",	23 },
+		{ "",					0 },
+		{ "a",					1 },
+		{ "ab",					2 },
+		{ "abc",				3 },
+		{ "abcd",				4 },
+		{ "abcde",				5 },
+		{ "abcdef",				6 },
+		{ "abcdefg",				7 },
+		{ "abcdefgh",				8 },
+		{ "abcdefghi",				9 },
+		{ "abcdefghij",				10 },
+		{ "abcdefghijk",			11 },
+		{ "abcdefghijkl",			12 },
+		{ "abcdefghijklm",			13 },
+		{ "abcdefghijklmn",			14 },
+		{ "abcdefghijklmno",			15 },
+		{ "abcdefghijklmnop",			16 },
+		{ "abcdefghijklmnopq",			17 },
+		{ "abcdefghijklmnopqr",			18 },
+		{ "abcdefghijklmnopqrs",		19 },
+		{ "abcdefghijklmnopqrst",		20 },
+		{ "abcdefghijklmnopqrstu",		21 },
+		{ "abcdefghijklmnopqrstuv",		22 },
+		{ "abcdefghijklmnopqrstuvw",		23 },
+		{ "abcdefghijklmnopqrstuvwx",		24 },
+		{ "abcdefghijklmnopqrstuvwxy",		25 },
+		{ "abcdefghijklmnopqrstuvwxyz",		26 },
+		{ "abcdefghijklmnopqrstuvwxyz0",	27 },
+		{ "abcdefghijklmnopqrstuvwxyz01",	28 },
+		{ "abcdefghijklmnopqrstuvwxyz012",	29 },
+		{ "abcdefghijklmnopqrstuvwxyz0123",	30 },
+		{ "abcdefghijklmnopqrstuvwxyz01234",	31 },
 
 		/*
 		 * patterns that check for the cases where the expression:
@@ -89,7 +101,7 @@ ATF_TC_BODY(strcpy_basic, tc)
 	if (!strcpy_fn)
 		strcpy_fn = strcpy;
 
-	for (a0 = 0; a0 < sizeof(long); ++a0) {
+	for (a0 = 0; a0 < 16; ++a0) {
 		for (a1 = 0; a1 < sizeof(long); ++a1) {
 			for (t = 0; t < (sizeof(tab) / sizeof(tab[0])); ++t) {
 
