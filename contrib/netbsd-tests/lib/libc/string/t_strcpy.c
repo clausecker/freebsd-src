@@ -10,6 +10,9 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <dlfcn.h>
+
+char * (*volatile strcpy_fn)(char *restrict, const char *restrict);
 
 ATF_TC(strcpy_basic);
 ATF_TC_HEAD(strcpy_basic, tc)
@@ -19,9 +22,7 @@ ATF_TC_HEAD(strcpy_basic, tc)
 
 ATF_TC_BODY(strcpy_basic, tc)
 {
-	/* try to trick the compiler */
-	char * (*f)(char *, const char *s) = strcpy;
-
+	void *dl_handle;
 	unsigned int a0, a1, t;
 	char buf0[64];
 	char buf1[64];
@@ -83,12 +84,17 @@ ATF_TC_BODY(strcpy_basic, tc)
 		{ "abcdefgh" "\xff\xff\xff\xff\xff\xff\xff\xff" "",	16 },
 	};
 
+	dl_handle = dlopen(NULL, RTLD_LAZY);
+	strcpy_fn = dlsym(dl_handle, "test_strcpy");
+	if (!strcpy_fn)
+		strcpy_fn = strcpy;
+
 	for (a0 = 0; a0 < sizeof(long); ++a0) {
 		for (a1 = 0; a1 < sizeof(long); ++a1) {
 			for (t = 0; t < (sizeof(tab) / sizeof(tab[0])); ++t) {
 
 				memcpy(&buf1[a1], tab[t].val, tab[t].len + 1);
-				ret = f(&buf0[a0], &buf1[a1]);
+				ret = strcpy_fn(&buf0[a0], &buf1[a1]);
 
 				/*
 				 * verify strcpy returns address of
