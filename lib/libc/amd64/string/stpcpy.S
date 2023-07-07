@@ -131,23 +131,22 @@ ARCHENTRY(__stpcpy, baseline)
 	mov	%esi, %ecx
 	mov	%rdi, %rdx
 	sub	%rsi, %rdi		# express destination as distance to surce
-	pxor	%xmm1, %xmm1
 	and	$~0xf, %rsi		# align source to 16 byte
+	movdqa	(%rsi), %xmm0		# head of string with junk before
+	pxor	%xmm1, %xmm1
 	and	$0xf, %ecx		# misalignment in bytes
-
-	movdqa	(%rsi), %xmm0
 	pcmpeqb	%xmm1, %xmm0		# NUL byte present?
 	pmovmskb %xmm0, %eax
 	shr	%cl, %eax		# clear out matches in junk bytes
 	bsf	%eax, %eax		# find match if any
 	jnz	.Lrunt
 
-	/* first iteration: write head back if it succeeds */
+	/* first normal iteration: write head back if it succeeds */
 	movdqa	16(%rsi), %xmm0		# 16 bytes of current iteration
 	movdqu	(%rsi, %rcx, 1), %xmm2	# first 16 bytes of the string
 	pcmpeqb	%xmm0, %xmm1		# NUL byte present?
 	pmovmskb %xmm1, %eax
-	bsf	%eax, %eax		# find match if any
+	test	%eax, %eax		# find match if any
 	jnz	.Lshorty
 
 	movdqu	%xmm2, (%rdx)		# store beginning of string
@@ -182,17 +181,19 @@ ARCHENTRY(__stpcpy, baseline)
 
 	/* NUL encountered in second iteration */
 .Lshorty:
+	tzcnt	%eax, %eax
 	add	$16, %eax		# account for length of first iteration
 	sub	%ecx, %eax		# but not the parts before the string
 
 	/* NUL encountered in first iteration */
+#define TBLOFF 26 /* offset such that lzcnt(32) refers to first table entry */
 .Lrunt:	lea	1(%rax), %edi		# string length including NUL byte
 	add	%rcx, %rsi		# point to beginning of string
+	lea	.Lbaselinejumps-TBLOFF(%rip), %rcx
 	lzcnt	%edi, %edi		# classify length into buckets:
 					# 1, 2-3, 4-7, 8-15, 16-31, 32 bytes
-	lea	.Lbaselinejumps(%rip), %rcx
-	movsbq	-26(%rcx, %rdi, 1), %rdi # table indexed such that lzcnt(32) is first entry index
-	add	%rcx, %rdi
+	movsbq	(%rcx, %rdi, 1), %rdi	# offset of jump target from %rcx
+	add	%rcx, %rdi		# compute jump target
 	jmp	*%rdi
 
 	/* transfer 16--32 bytes */
@@ -227,12 +228,12 @@ ARCHENTRY(__stpcpy, baseline)
 
 	/* RIP-relative jump table, must be colocated with text */
 .Lbaselinejumps:
-	.byte	.L1632-.Lbaselinejumps
-	.byte	.L1632-.Lbaselinejumps
-	.byte	.L0815-.Lbaselinejumps
-	.byte	.L0407-.Lbaselinejumps
-	.byte	.L0203-.Lbaselinejumps
-	.byte	.L0101-.Lbaselinejumps
+	.byte	.L1632-.Lbaselinejumps+TBLOFF
+	.byte	.L1632-.Lbaselinejumps+TBLOFF
+	.byte	.L0815-.Lbaselinejumps+TBLOFF
+	.byte	.L0407-.Lbaselinejumps+TBLOFF
+	.byte	.L0203-.Lbaselinejumps+TBLOFF
+	.byte	.L0101-.Lbaselinejumps+TBLOFF
 ARCHEND(__stpcpy, baseline)
 
 	.section .note.GNU-stack,"",%progbits
