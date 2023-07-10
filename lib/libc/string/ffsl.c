@@ -44,5 +44,9 @@ __FBSDID("$FreeBSD$");
 int
 ffsl(long mask)
 {
+#ifdef __clang__
 	return (__builtin_ffsl(mask));
+#else /* gcc */
+	return (mask == 0 ? 0 : __builtin_ctzl(mask) + 1);
+#endif
 }
