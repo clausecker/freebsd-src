@@ -243,8 +243,8 @@ ARCHENTRY(memcmp, scalar)
 2:
 	subl	%r8d,%eax
 	ret
-ARCHEND(memcmp, scalar)
 #endif
+ARCHEND(memcmp, scalar)
 
 ARCHENTRY(memcmp, baseline)
 	cmp		$16, %rdx		# very short buffer?
@@ -299,8 +299,8 @@ ARCHENTRY(memcmp, baseline)
 	cmovz		%eax, %edx		# ensure ecx == 0 if no mismatch found
 	add		%edx, %r8d		# offset of mismatch in -0x48(%rsp)
 	add		%edx, %r9d		# offset of mismatch in -0x28(%rsp)
-	movzbl		-72(%rsp, %r8, 1), %ecx # load bytes at locations of mismatch
-	movzbl		-40(%rsp, %r9, 1), %eax
+	movzbl		-72(%rsp, %r8, 1), %eax # load bytes at locations of mismatch
+	movzbl		-40(%rsp, %r9, 1), %ecx
 	sub		%ecx, %eax		# and compute the return value
 .Lret:	ret
 #endif /* BCMP */
@@ -321,7 +321,7 @@ ARCHENTRY(memcmp, baseline)
 	and		$0xf, %eax		# offset of RDI from alignment
 	sub		%rax, %rcx		# -16(%rdi, %rcx, 1) is aligned
 	cmp		%rdx, %rcx		# 16 bytes left to compare?
-	jb		1f
+	ja		1f
 
 	/* main loop unrolled twice */
 	ALIGN_TEXT
@@ -332,16 +332,16 @@ ARCHENTRY(memcmp, baseline)
 	xor		$0xffff, %eax		# any positions not equal?
 	jnz		.Luneq1st
 	cmp		%rdx, %r8		# 16 bytes left to compare for second half?
-	jb		1f
+	ja		1f
 
 	movdqu		(%rsi, %rcx, 1), %xmm0
-	add		$32, %rcx		# advance to next iteration
 	pcmpeqb		(%rdi, %rcx, 1), %xmm0
+	add		$32, %rcx		# advance to next iteration
 	pmovmskb	%xmm0, %eax
 	xor		$0xffff, %eax
 	jnz		.Luneq2nd
 	cmp		%rdx, %rcx		# 16 bytes left for the next iteration?
-	jae		0b
+	jbe		0b
 	sub		$16, %rcx		# if not, go back to after first half
 
 	/* less than 16 bytes left to compare, but total string length >=16 bytes */
