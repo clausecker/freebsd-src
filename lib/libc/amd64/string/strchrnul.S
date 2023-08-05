@@ -46,11 +46,13 @@ ENDARCHFUNCS(__strchrnul)
  * presence of both NUL and c in each iteration.
  */
 ARCHENTRY(__strchrnul, scalar)
+	mov	%edi, %ecx
+	and	$~7, %rdi		# align to 8 byte
 	movzbl	%sil, %esi		# clear stray high bits
 	movabs	$0x0101010101010101, %r8
-	movabs	$0x8080808080808080, %r9
+	mov	(%rdi), %rax		# load first word
 	imul	%r8, %rsi		# replicate char 8 times
-	neg	%r8			# negate 01..01 so we can use lea
+	movabs	$0x8080808080808080, %r9
 
 	/*
 	 * Unaligned input: align to 8 bytes.  Then proceed the same
@@ -58,13 +60,11 @@ ARCHENTRY(__strchrnul, scalar)
 	 * beginning of the string.  This is achieved by shifting r9
 	 * into r10 to have 0x00 bytes before the string begins.
 	 */
-	mov	%edi, %ecx
-	and	$~7, %rdi		# align to 8 byte
 	shl	$3, %ecx
-	mov	(%rdi), %rax
 	mov	%r9, %r10
 	add	$8, %rdi
 	shl	%cl, %r10		# 0x80 where the string is
+	neg	%r8			# negate 01..01 so we can use lea
 
 	mov	%rsi, %rcx
 	xor	%rax, %rcx		# str ^ c
@@ -76,12 +76,11 @@ ARCHENTRY(__strchrnul, scalar)
 	and	%r11, %rcx		# ((str ^ c - 0x01..01) & ~(str ^ c)
 	or	%rcx, %rax		# matches for both
 	and	%r10, %rax		# not including junk bytes or bytes before the string
-	jnz	2f
+	jnz	1f
 
-	/* main loop */
+	/* main loop unrolled twice */
 	ALIGN_TEXT
-1:	mov	(%rdi), %rax		# str
-	add	$8, %rdi
+0:	mov	(%rdi), %rax		# str
 	mov	%rsi, %rcx
 	xor	%rax, %rcx		# str ^ c
 	lea	(%rax, %r8, 1), %rdx	# str - 0x01..01
@@ -91,13 +90,28 @@ ARCHENTRY(__strchrnul, scalar)
 	and	%rdx, %rax		# (str - 0x01..01) & ~str
 	and	%r11, %rcx		# ((str ^ c - 0x01..01) & ~(str ^ c)
 	or	%rcx, %rax		# matches for both
-	and	%r9, %rax		# not including junk bytes
-	jz	1b
+	and	%r9, %rax		# not including junk bits
+	jnz	2f
+
+	mov	8(%rdi), %rax		# str
+	add	$16, %rdi
+	mov	%rsi, %rcx
+	xor	%rax, %rcx		# str ^ c
+	lea	(%rax, %r8, 1), %rdx	# str - 0x01..01
+	lea	(%rcx, %r8, 1), %r11	# (str ^ c) - 0x01..01
+	not	%rax			# ~str
+	not	%rcx			# ~(str ^ c)
+	and	%rdx, %rax		# (str - 0x01..01) & ~str
+	and	%r11, %rcx		# ((str ^ c - 0x01..01) & ~(str ^ c)
+	or	%rcx, %rax		# matches for both
+	and	%r9, %rax		# not including junk bits
+	jz	0b
 
 	/* NUL or c found */
+1:	sub	$8, %rdi		# undo advance past buffer
 2:	tzcnt	%rax, %rax		# first NUL or c byte match
 	shr	$3, %eax		# scale from bit to byte index
-	lea	-8(%rdi, %rax, 1), %rax	# pointer to found c or NUL
+	add	%rdi, %rax		# pointer to found c or NUL
 	ret
 ARCHEND(__strchrnul, scalar)
 
