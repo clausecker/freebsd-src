@@ -81,7 +81,7 @@ ARCHENTRY(__strchrnul, scalar)
 	/* main loop */
 	ALIGN_TEXT
 1:	mov	(%rdi), %rax		# str
-0:	add	$8, %rdi
+	add	$8, %rdi
 	mov	%rsi, %rcx
 	xor	%rax, %rcx		# str ^ c
 	lea	(%rax, %r8, 1), %rdx	# str - 0x01..01
@@ -102,40 +102,51 @@ ARCHENTRY(__strchrnul, scalar)
 ARCHEND(__strchrnul, scalar)
 
 ARCHENTRY(__strchrnul, baseline)
-	movzbl		%sil, %esi		# prevent sign-extension shenanigans
 	mov		%edi, %ecx
-	imul		$0x01010101, %esi, %esi	# c -> cccc
 	and		$~0xf, %rdi		# align to 16 byte
-	movd		%esi, %xmm0
 	movdqa		(%rdi), %xmm1
+	movd		%esi, %xmm0
 	and		$0xf, %ecx		# distance from (%rdi) to start of string
+	pxor		%xmm2, %xmm2
 	mov		$-1, %edx
+	punpcklbw	%xmm0, %xmm0		# c -> cc
 	shl		%cl, %edx		# bits corresponding to bytes in the string
-	pshufd		$0, %xmm0, %xmm0	# cccc -> cccccccccccccccc
+	punpcklwd	%xmm0, %xmm0		# cc -> cccc
+	add		$16, %rdi
 
 	/* check for match in head */
-	add		$16, %rdi
-	pxor		%xmm2, %xmm2
 	pcmpeqb		%xmm1, %xmm2		# NUL bytes present?
+	pshufd		$0, %xmm0, %xmm0	# cccc -> cccccccccccccccc
 	pcmpeqb		%xmm0, %xmm1		# c present?
 	por		%xmm2, %xmm1		# either present?
 	pmovmskb	%xmm1, %eax
 	and		%edx, %eax		# match in the string?
-	jnz		0f
+	jnz		1f
 
+	/* main loop unrolled twice */
 	ALIGN_TEXT
-1:	movdqa		(%rdi), %xmm1
-	add		$16, %rdi
+0:	movdqa		(%rdi), %xmm1
 	pxor		%xmm2, %xmm2
 	pcmpeqb		%xmm1, %xmm2		# NUL bytes present?
 	pcmpeqb		%xmm0, %xmm1		# c present?
 	por		%xmm2, %xmm1		# either present?
 	pmovmskb	%xmm1, %eax
 	test		%eax, %eax		# match in the string?
-	jz		1b
+	jnz		2f
 
-0:	tzcnt		%eax, %eax		# where is the match?
-	lea		-16(%rdi, %rax, 1), %rax # pointer to found c or NUL
+	movdqa		16(%rdi), %xmm1
+	add		$32, %rdi
+	pxor		%xmm2, %xmm2
+	pcmpeqb		%xmm1, %xmm2		# NUL bytes present?
+	pcmpeqb		%xmm0, %xmm1		# c present?
+	por		%xmm2, %xmm1		# either present?
+	pmovmskb	%xmm1, %eax
+	test		%eax, %eax		# match in the string?
+	jz		0b
+
+1:	sub		$16, %rdi		# undo advance past buffer
+2:	tzcnt		%eax, %eax		# where is the match?
+	add		%rdi, %rax		# pointer to found c or NUL
 	ret
 ARCHEND(__strchrnul, baseline)
 
