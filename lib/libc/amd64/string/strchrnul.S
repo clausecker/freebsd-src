@@ -102,14 +102,14 @@ ARCHENTRY(__strchrnul, scalar)
 ARCHEND(__strchrnul, scalar)
 
 ARCHENTRY(__strchrnul, baseline)
-	movd		%esi, %xmm0
+	movzbl		%sil, %esi		# prevent sign-extension shenanigans
 	mov		%edi, %ecx
+	imul		$0x01010101, %esi, %esi	# c -> cccc
 	and		$~0xf, %rdi		# align to 16 byte
+	movd		%esi, %xmm0
 	movdqa		(%rdi), %xmm1
 	and		$0xf, %ecx		# distance from (%rdi) to start of string
-	punpcklbw	%xmm0, %xmm0		# c -> cc
 	mov		$-1, %edx
-	punpcklwd	%xmm0, %xmm0		# cc -> cccc
 	shl		%cl, %edx		# bits corresponding to bytes in the string
 	pshufd		$0, %xmm0, %xmm0	# cccc -> cccccccccccccccc
 
