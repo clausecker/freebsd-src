@@ -186,11 +186,10 @@ ARCHENTRY(__stpcpy, baseline)
 	sub	%ecx, %eax		# but not the parts before the string
 
 	/* NUL encountered in first iteration */
-#define TBLOFF 26 /* offset such that lzcnt(32) refers to first table entry */
 .Lrunt:	lea	1(%rax), %edi		# string length including NUL byte
 	add	%rcx, %rsi		# point to beginning of string
-	lea	.Lbaselinejumps-TBLOFF(%rip), %rcx
-	lzcnt	%edi, %edi		# classify length into buckets:
+	lea	.Lbaselinejumps(%rip), %rcx
+	bsr	%edi, %edi		# classify length into buckets:
 					# 1, 2-3, 4-7, 8-15, 16-31, 32 bytes
 	movsbq	(%rcx, %rdi, 1), %rdi	# offset of jump target from %rcx
 	add	%rcx, %rdi		# compute jump target
@@ -228,12 +227,12 @@ ARCHENTRY(__stpcpy, baseline)
 
 	/* RIP-relative jump table, must be colocated with text */
 .Lbaselinejumps:
-	.byte	.L1632-.Lbaselinejumps+TBLOFF
-	.byte	.L1632-.Lbaselinejumps+TBLOFF
-	.byte	.L0815-.Lbaselinejumps+TBLOFF
-	.byte	.L0407-.Lbaselinejumps+TBLOFF
-	.byte	.L0203-.Lbaselinejumps+TBLOFF
-	.byte	.L0101-.Lbaselinejumps+TBLOFF
+	.byte	.L0101-.Lbaselinejumps
+	.byte	.L0203-.Lbaselinejumps
+	.byte	.L0407-.Lbaselinejumps
+	.byte	.L0815-.Lbaselinejumps
+	.byte	.L1632-.Lbaselinejumps
+	.byte	.L1632-.Lbaselinejumps
 ARCHEND(__stpcpy, baseline)
 
 	.section .note.GNU-stack,"",%progbits
