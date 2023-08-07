@@ -2,6 +2,10 @@
 
 /*
  * Written by J.T. Conklin <jtc@acorntoolworks.com>
+ *
+ * Portions of this software were developed by Robert Clausecker
+ * <fuz@FreeBSD.org> under sponsorship from the FreeBSD Foundation.
+ *
  * Public domain.
  */
 
