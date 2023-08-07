@@ -188,32 +188,30 @@ ARCHENTRY(__stpcpy, baseline)
 	/* NUL encountered in first iteration */
 .Lrunt:	lea	1(%rax), %edi		# string length including NUL byte
 	add	%rcx, %rsi		# point to beginning of string
-	lea	.Lbaselinejumps(%rip), %rcx
-	bsr	%edi, %edi		# classify length into buckets:
+	lea	.Lbaselinejumps(%rip), %r8
+	bsr	%edi, %ecx		# classify length into buckets:
 					# 1, 2-3, 4-7, 8-15, 16-31, 32 bytes
-	movsbq	(%rcx, %rdi, 1), %rdi	# offset of jump target from %rcx
-	add	%rcx, %rdi		# compute jump target
-	jmp	*%rdi
+	movsbq	(%r8, %rcx, 1), %rcx	# offset of jump target from %r8
+	add	%rdx, %rax		# point to NUL byte
+	add	%r8, %rcx		# compute jump target
+	jmp	*%rcx
 
 	/* transfer 16--32 bytes */
-.L1632:	movdqu	-15(%rsi, %rax, 1), %xmm0 # load last 16 bytes
-	add	%rdx, %rax		# point to NUL byte
+.L1632:	movdqu	-16(%rsi, %rdi, 1), %xmm0 # load last 16 bytes
 	movdqu	%xmm2, (%rdx)		# store first 16 bytes
 	movdqu	%xmm0, -15(%rax)	# store last 16 bytes
 	ret
 
 	/* transfer 8--15 bytes */
 .L0815:	mov	(%rsi), %rcx		# load first 8 bytes
-	mov	-7(%rsi, %rax, 1), %rdi	# load last 8 bytes
-	add	%rdx, %rax		# point to NUL byte
+	mov	-8(%rsi, %rdi, 1), %rdi	# load last 8 bytes
 	mov	%rcx, (%rdx)		# store to dst
 	mov	%rdi, -7(%rax)		# dito
 	ret
 
 	/* transfer 4--7 bytes */
 .L0407:	mov	(%rsi), %ecx
-	mov	-3(%rsi, %rax, 1), %edi
-	add	%rdx, %rax
+	mov	-4(%rsi, %rdi, 1), %edi
 	mov	%ecx, (%rdx)
 	mov	%edi, -3(%rax)
 	ret
@@ -221,8 +219,7 @@ ARCHENTRY(__stpcpy, baseline)
 	/* transfer 2--3 bytes, or just 1 byte */
 .L0203:	movzwl	(%rsi), %ecx
 	mov	%cx, (%rdx)		# store first two bytes
-.L0101:	add	%rdx, %rax
-	movb	$0, (%rax)		# store terminating NUL byte
+.L0101:	movb	$0, (%rax)		# store terminating NUL byte
 	ret
 
 	/* RIP-relative jump table, must be colocated with text */
