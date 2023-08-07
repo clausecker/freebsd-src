@@ -228,7 +228,7 @@ ARCHENTRY(__stpcpy, baseline)
 	mov	%cx, (%rdx)		# store first two bytes
 
 	/* transfer 0 bytes (last byte is always NUL) */
-.L0101:	movb	$'\0', (%rax)		# store terminating NUL byte
+.L0101:	movb	$0, (%rax)		# store terminating NUL byte
 	ret
 ARCHEND(__stpcpy, baseline)
 
