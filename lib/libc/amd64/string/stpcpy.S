@@ -173,6 +173,7 @@ ARCHENTRY(__stpcpy, baseline)
 	/* end of string after main loop has iterated */
 	add	$16, %rsi		# advance rsi to second unrolled half
 1:	tzcnt	%eax, %eax		# find location of match
+					# (behaves as bsf on pre-x86-64-v3 CPUs)
 	add	%rsi, %rax		# point to NUL byte
 	movdqu	-15(%rax), %xmm0	# last 16 bytes of string
 	movdqu	%xmm0, -15(%rax, %rdi, 1) # copied to destination
@@ -188,48 +189,47 @@ ARCHENTRY(__stpcpy, baseline)
 	/* NUL encountered in first iteration */
 .Lrunt:	lea	1(%rax), %edi		# string length including NUL byte
 	add	%rcx, %rsi		# point to beginning of string
-	lea	.Lbaselinejumps(%rip), %r8
-	bsr	%edi, %ecx		# classify length into buckets:
-					# 1, 2-3, 4-7, 8-15, 16-31, 32 bytes
-	movsbq	(%r8, %rcx, 1), %rcx	# offset of jump target from %r8
 	add	%rdx, %rax		# point to NUL byte
-	add	%r8, %rcx		# compute jump target
-	jmp	*%rcx
 
 	/* transfer 16--32 bytes */
-.L1632:	movdqu	-16(%rsi, %rdi, 1), %xmm0 # load last 16 bytes
+.L1632:	cmp	$16, %edi
+	jb	.L0815
+
+	movdqu	-16(%rsi, %rdi, 1), %xmm0 # load last 16 bytes
 	movdqu	%xmm2, (%rdx)		# store first 16 bytes
 	movdqu	%xmm0, -15(%rax)	# store last 16 bytes
 	ret
 
 	/* transfer 8--15 bytes */
-.L0815:	mov	(%rsi), %rcx		# load first 8 bytes
+.L0815:	cmp	$8, %edi
+	jb	.L0407
+
+	mov	(%rsi), %rcx		# load first 8 bytes
 	mov	-8(%rsi, %rdi, 1), %rdi	# load last 8 bytes
 	mov	%rcx, (%rdx)		# store to dst
 	mov	%rdi, -7(%rax)		# dito
 	ret
 
 	/* transfer 4--7 bytes */
-.L0407:	mov	(%rsi), %ecx
+.L0407:	cmp	$4, %edi
+	jb	.L0203
+
+	mov	(%rsi), %ecx
 	mov	-4(%rsi, %rdi, 1), %edi
 	mov	%ecx, (%rdx)
 	mov	%edi, -3(%rax)
 	ret
 
-	/* transfer 2--3 bytes, or just 1 byte */
-.L0203:	movzwl	(%rsi), %ecx
-	mov	%cx, (%rdx)		# store first two bytes
-.L0101:	movb	$0, (%rax)		# store terminating NUL byte
-	ret
+	/* transfer 2--3 bytes */
+.L0203:	cmp	$2, %edi
+	jb	.L0101
 
-	/* RIP-relative jump table, must be colocated with text */
-.Lbaselinejumps:
-	.byte	.L0101-.Lbaselinejumps
-	.byte	.L0203-.Lbaselinejumps
-	.byte	.L0407-.Lbaselinejumps
-	.byte	.L0815-.Lbaselinejumps
-	.byte	.L1632-.Lbaselinejumps
-	.byte	.L1632-.Lbaselinejumps
+	movzwl	(%rsi), %ecx
+	mov	%cx, (%rdx)		# store first two bytes
+
+	/* transfer 0 bytes (last byte is always NUL) */
+.L0101:	movb	$'\0', (%rax)		# store terminating NUL byte
+	ret
 ARCHEND(__stpcpy, baseline)
 
 	.section .note.GNU-stack,"",%progbits
