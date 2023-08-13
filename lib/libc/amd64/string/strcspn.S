@@ -39,30 +39,30 @@ ENDARCHFUNCS(strcspn)
 ARCHENTRY(strcspn, scalar)
 	push	%rbp			# align stack to enable function call
 	mov	%rsp, %rbp
-	sub	$256, %rsp
-
-	/* clear buffer for match table */
-	xor	%eax, %eax
-	mov	$28, %ecx
-0:	mov	%rax, (%rsp, %rcx, 8)
-	mov	%rax, 8(%rsp, %rcx, 8)
-	mov	%rax, 16(%rsp, %rcx, 8)
-	mov	%rax, 24(%rsp, %rcx, 8)
-	sub	$4, %ecx
-	jnc	0b
+	sub	$256, %rsp		# allocate space for lookup table
 
 	/* check for special cases */
 	movzbl	(%rsi), %eax		# first character in the set
-	movb	$1, (%rsp, %rax, 1)	# register first char of charset
 	test	%eax, %eax
 	jz	.Lstrlen
 
-	movzbl	1(%rsi), %ecx		# second character in the set
-	movb	$1, (%rsp, %rcx, 1)
-	test	%ecx, %ecx
+	movzbl	1(%rsi), %edx		# second character in the set
+	test	%edx, %edx
 	jz	.Lstrchr
 
+	/* no special case matches -- prepare lookup table */
+	xor	%r8d, %r8d
+	mov	$28, %ecx
+0:	mov	%r8, (%rsp, %rcx, 8)
+	mov	%r8, 8(%rsp, %rcx, 8)
+	mov	%r8, 16(%rsp, %rcx, 8)
+	mov	%r8, 24(%rsp, %rcx, 8)
+	sub	$4, %ecx
+	jnc	0b
+
 	add	$2, %rsi
+	movb	$1, (%rsp, %rax, 1)	# register first chars in set
+	movb	$1, (%rsp, %rdx, 1)
 	mov	%rdi, %rax		# a copy of the source to iterate over
 
 	/* process remaining chars in set */
@@ -106,7 +106,7 @@ ARCHENTRY(strcspn, scalar)
 	leave
 	ret
 
-	/* charset is empty, degrades to strlen */
+	/* set is empty, degrades to strlen */
 .Lstrlen:
 	leave
 	jmp	CNAME(strlen)
