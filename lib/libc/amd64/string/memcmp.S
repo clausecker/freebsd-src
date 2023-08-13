@@ -31,6 +31,8 @@
  * $FreeBSD$
  */
 
+#include <machine/param.h>
+
 #include <machine/asm.h>
 __FBSDID("$FreeBSD$");
 
@@ -247,65 +249,80 @@ ARCHENTRY(memcmp, scalar)
 ARCHEND(memcmp, scalar)
 
 ARCHENTRY(memcmp, baseline)
-	cmp		$16, %rdx		# very short buffer?
-	jae		.Llong
+	cmp		$32, %rdx		# enough to permit use of the long kernel?
+	ja		.Llong
+
+	test		%rdx, %rdx		# zero bytes buffer?
+	je		.L0
 
 	/*
-	 * We would like to process short buffers without extra branches.
-	 * We do this by loading 16 byte aligned for the head of the string
-	 * plus another 16 byte aligned for the tail.  If the string does
-	 * not cross an 16 byte boundary, we redirect the tail load to a dummy
-	 * location as to not cross into unmapped storage.
+	 * Compare strings of 1--32 bytes.  We want to do this by
+	 * loading into two xmm registers and then comparing.  To avoid
+	 * crossing into unmapped pages, we either load 32 bytes from
+	 * the start of the buffer or 32 bytes before its end, depending
+	 * on whether there is a page boundary between the overread area
+	 * or not.
 	 */
-	mov		%edi, %r8d
-	mov		%esi, %r9d
-	and		$~0xf, %rdi		# align sources to 8 bytes
-	and		$~0xf, %rsi
 
-	xor		%eax, %eax
-	test		%rdx, %rdx		# empty input?
-	jz		.Lret
+	/* check for page boundaries overreads */
+	lea		32(%rdi), %eax		# end of overread
+	lea		32(%rsi), %r8d
+	lea		(%rdi, %rdx, 1), %ecx	# end of buffer
+	lea		(%rsi, %rdx, 1), %r9d
+	xor		%ecx, %eax
+	xor		%r9d, %r8d
+	test		$PAGE_SIZE, %eax	# did we cross a page?
+	jz		0f
 
-	movdqa		(%rdi), %xmm0		# load first halves
-	movdqa		(%rsi), %xmm1
-	and		$0xf, %r8d		# offset from alignment
-	and		$0xf, %r9d
-	lea		(%rdx, %r8, 1), %eax	# buffer length + offset
-	lea		(%rdx, %r9, 1), %ecx
-	movdqa		%xmm0, -72(%rsp)	# stash first halves in tmp buffer
-	movdqa		%xmm1, -40(%rsp)
-	cmp		$16, %eax		# does buf cross into the second halves?
-	cmovbe		%rsp, %rdi		# if not, redirect loads to dummy location
-	cmp		$16, %ecx
-	cmovbe		%rsp, %rsi
-	movdqu		16(%rdi), %xmm0		# load second halves (or dummy)
-	movdqu		16(%rsi), %xmm1
+	/* fix up rdi */
+	movdqu		-32(%rdi, %rdx, 1), %xmm0
+	movdqu		-16(%rdi, %rdx, 1), %xmm1
+	lea		-8(%rsp), %rdi		# end of replacement buffer
+	sub		%rdx, %rdi		# start of replacement buffer
+	movdqa		%xmm0, -40(%rsp)	# copy to replacement buffer
+	movdqa		%xmm1, -24(%rsp)
+
+0:	test		$PAGE_SIZE, %r8d
+	jz		0f
+
+	/* fix up rsi */
+	movdqu		-32(%rsi, %rdx, 1), %xmm0
+	movdqu		-16(%rsi, %rdx, 1), %xmm1
+	lea		-40(%rsp), %rsi		# end of replacement buffer
+	sub		%rdx, %rsi		# start of replacement buffer
+	movdqa		%xmm0, -72(%rsp)	# copy to replacement buffer
+	movdqa		%xmm1, -56(%rsp)
+
+	/* load data and compare properly */
+0:	movdqu		16(%rdi), %xmm1
+	movdqu		16(%rsi), %xmm3
+	movdqu		(%rdi), %xmm0
+	movdqu		(%rsi), %xmm2
 	mov		%edx, %ecx
 	mov		$-1, %edx
-	movdqu		%xmm0, -56(%rsp)	# stash second half
-	movdqu		%xmm1, -24(%rsp)
+	shl		%cl, %rdx		# ones where the buffer is not
+	pcmpeqb		%xmm3, %xmm1
+	pcmpeqb		%xmm2, %xmm0
+	pmovmskb	%xmm1, %ecx
+	pmovmskb	%xmm0, %eax
+	shl		$16, %ecx
+	or		%ecx, %eax		# ones where the buffers match
+	or		%edx, %eax		# including where the buffer is not
+	not		%eax			# ones where there is a mismatch
+#ifndef BCMP
+	bsf		%eax, %edx		# location of the first mismatch
+	cmovz		%eax, %edx		# including if there is no mismatch
+	movzbl		(%rdi, %rdx, 1), %eax	# mismatching bytes
+	movzbl		(%rsi, %rdx, 1), %edx
+	sub		%edx, %eax
+#endif
+	ret
 
-	shl		%cl, %edx		# mask with ones beyond bytes in buf
-	movdqu		-72(%rsp, %r8, 1), %xmm1 # 1st input occupies prefix of xmm1
-	movdqu		-40(%rsp, %r9, 1), %xmm0 # 2nd input occupies prefix of xmm0
-	pcmpeqb		%xmm1, %xmm0
-	pmovmskb	%xmm0, %eax		# bitmask of matching indices
-	or		%edx, %eax		# treat everything beyond buf as match
-	not		%eax			# turn into mask of mismatches
-#ifdef BCMP
-.Lret:	ret
-#else /* memcmp */
-	bsf		%eax, %edx		# find first mismatch
-	cmovz		%eax, %edx		# ensure ecx == 0 if no mismatch found
-	add		%edx, %r8d		# offset of mismatch in -0x48(%rsp)
-	add		%edx, %r9d		# offset of mismatch in -0x28(%rsp)
-	movzbl		-72(%rsp, %r8, 1), %eax # load bytes at locations of mismatch
-	movzbl		-40(%rsp, %r9, 1), %ecx
-	sub		%ecx, %eax		# and compute the return value
-.Lret:	ret
-#endif /* BCMP */
+	/* empty input */
+.L0:	xor		%eax, %eax
+	ret
 
-	/* compare head */
+	/* compare head for 33+ bytes */
 	ALIGN_TEXT
 .Llong:	movdqu		(%rdi), %xmm1
 	movdqu		(%rsi), %xmm0
@@ -320,8 +337,6 @@ ARCHENTRY(memcmp, baseline)
 	add		$16, %ecx		# total string length we have checked after next iteration
 	and		$0xf, %eax		# offset of RDI from alignment
 	sub		%rax, %rcx		# -16(%rdi, %rcx, 1) is aligned
-	cmp		%rdx, %rcx		# 16 bytes left to compare?
-	ja		1f
 
 	/* main loop unrolled twice */
 	ALIGN_TEXT
@@ -350,17 +365,15 @@ ARCHENTRY(memcmp, baseline)
 	pcmpeqb		%xmm1, %xmm0
 	pmovmskb	%xmm0, %eax
 	xor		$0xffff, %eax
-#ifdef BCMP
-	ret					# eax is nonzero on mismatch
-#else /* memcmp */
+#ifndef BCMP
 	bsf		%eax, %ecx		# find first mismatch
 	cmovz		%eax, %ecx		# ensure ecx == 0 if no mismatch found
 	add		%rcx, %rdx		# mismatch now at rdi[rdx-16] != rsi[rdx-16]
 	movzbl		-16(%rsi, %rdx, 1), %ecx
 	movzbl		-16(%rdi, %rdx, 1), %eax
 	sub		%ecx, %eax
+#endif /* ifndef(BCMP) */
 	ret
-#endif /* ifdef(BCMP) */
 
 	/* match found */
 #ifdef BCMP
