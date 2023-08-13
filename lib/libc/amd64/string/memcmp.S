@@ -265,13 +265,13 @@ ARCHENTRY(memcmp, baseline)
 	 */
 
 	/* check for page boundaries overreads */
-	lea		32(%rdi), %eax		# end of overread
-	lea		32(%rsi), %r8d
-	lea		(%rdi, %rdx, 1), %ecx	# end of buffer
-	lea		(%rsi, %rdx, 1), %r9d
+	lea		31(%rdi), %eax		# end of overread
+	lea		31(%rsi), %r8d
+	lea		-1(%rdi, %rdx, 1), %ecx	# last character in buffer
+	lea		-1(%rsi, %rdx, 1), %r9d
 	xor		%ecx, %eax
 	xor		%r9d, %r8d
-	test		$PAGE_SIZE, %eax	# did we cross a page?
+	test		$PAGE_SIZE, %eax	# are they on different pages?
 	jz		0f
 
 	/* fix up rdi */
@@ -322,77 +322,88 @@ ARCHENTRY(memcmp, baseline)
 .L0:	xor		%eax, %eax
 	ret
 
-	/* compare head for 33+ bytes */
+	/* compare 33+ bytes */
 	ALIGN_TEXT
-.Llong:	movdqu		(%rdi), %xmm1
-	movdqu		(%rsi), %xmm0
-	mov		$16, %ecx
-	pcmpeqb		%xmm1, %xmm0		# rdi[i] == rsi[i] for 0..15?
-	pmovmskb	%xmm0, %eax		# mask of positions where this is the case
-	xor		$0xffff, %eax		# any positions not equal?
-	jnz		.Luneq1st
+.Llong:	movdqu		(%rdi), %xmm0		# load head
+	movdqu		(%rsi), %xmm2
+	mov		%rdi, %rcx
+	sub		%rdi, %rsi		# express rsi as distance from rdi
+	and		$~0xf, %rdi		# align rdi to 16 bytes
+	movdqu		16(%rsi, %rdi, 1), %xmm1
+	pcmpeqb		16(%rdi), %xmm1		# compare second half of this iteration
+	add		%rcx, %rdx		# pointer to last byte in buffer
+	pcmpeqb		%xmm2, %xmm0
+	pmovmskb	%xmm0, %eax
+	xor		$0xffff, %eax		# any mismatch?
+	jne		.Lmismatch_head
+	add		$64, %rdi		# advance to next iteration
+	jmp		1f			# and get going with the loop
 
-	/* align rdi to 16 bytes, then continue */
-	mov		%edi, %eax
-	add		$16, %ecx		# total string length we have checked after next iteration
-	and		$0xf, %eax		# offset of RDI from alignment
-	sub		%rax, %rcx		# -16(%rdi, %rcx, 1) is aligned
-
-	/* main loop unrolled twice */
+	/* process buffer 32 bytes at a time */
 	ALIGN_TEXT
-0:	movdqu		-16(%rsi, %rcx, 1), %xmm0
-	lea		16(%rcx), %r8		# loop bound check to break dependency chain
-	pcmpeqb		-16(%rdi, %rcx, 1), %xmm0 # all characters equal?
-	pmovmskb	%xmm0, %eax		# mask of positions where this is the case
-	xor		$0xffff, %eax		# any positions not equal?
-	jnz		.Luneq1st
-	cmp		%rdx, %r8		# 16 bytes left to compare for second half?
-	ja		1f
+0:	movdqu		-32(%rsi, %rdi, 1), %xmm0
+	movdqu		-16(%rsi, %rdi, 1), %xmm1
+	pcmpeqb		-32(%rdi), %xmm0
+	pcmpeqb		-16(%rdi), %xmm1
+	add		$32, %rdi		# advance to next iteration
+1:	pand		%xmm0, %xmm1		# 0xff where both halves matched
+	pmovmskb	%xmm1, %eax
+	cmp		$0xffff, %eax		# all bytes matched?
+	jne		.Lmismatch
+	cmp		%rdx, %rdi		# end of buffer reached?
+	jb		0b
 
-	movdqu		(%rsi, %rcx, 1), %xmm0
-	pcmpeqb		(%rdi, %rcx, 1), %xmm0
-	add		$32, %rcx		# advance to next iteration
+	/* less than 32 bytes left to compare */
+	movdqu		-16(%rdx), %xmm1	# load 32 byte tail through end pointer
+	movdqu		-16(%rdx, %rsi, 1), %xmm3
+	movdqu		-32(%rdx), %xmm0
+	movdqu		-32(%rdx, %rsi, 1), %xmm2
+	pcmpeqb		%xmm3, %xmm1
+	pcmpeqb		%xmm2, %xmm0
+	pmovmskb	%xmm1, %ecx
 	pmovmskb	%xmm0, %eax
-	xor		$0xffff, %eax
-	jnz		.Luneq2nd
-	cmp		%rdx, %rcx		# 16 bytes left for the next iteration?
-	jbe		0b
-	sub		$16, %rcx		# if not, go back to after first half
-
-	/* less than 16 bytes left to compare, but total string length >=16 bytes */
-1:	movdqu		-16(%rdi, %rdx, 1), %xmm1
-	movdqu		-16(%rsi, %rdx, 1), %xmm0
-	pcmpeqb		%xmm1, %xmm0
-	pmovmskb	%xmm0, %eax
-	xor		$0xffff, %eax
+	shl		$16, %ecx
+	or		%ecx, %eax		# ones where the buffers match
+	not		%eax			# ones where there is a mismatch
 #ifndef BCMP
-	bsf		%eax, %ecx		# find first mismatch
-	cmovz		%eax, %ecx		# ensure ecx == 0 if no mismatch found
-	add		%rcx, %rdx		# mismatch now at rdi[rdx-16] != rsi[rdx-16]
-	movzbl		-16(%rsi, %rdx, 1), %ecx
-	movzbl		-16(%rdi, %rdx, 1), %eax
-	sub		%ecx, %eax
-#endif /* ifndef(BCMP) */
+	bsf		%eax, %ecx		# location of the first mismatch
+	cmovz		%eax, %ecx		# including if there is no mismatch
+	add		%rcx, %rdx		# pointer to potential mismatch
+	movzbl		-32(%rdx), %eax		# mismatching bytes
+	movzbl		-32(%rdx, %rsi, 1), %edx
+	sub		%edx, %eax
+#endif
 	ret
 
-	/* match found */
 #ifdef BCMP
-.Luneq2nd:
-.Luneq1st:
-	ret					# eax is guaranteed nonzero here
-						# TODO: match return value of generic implementation?
+.Lmismatch:
+	mov		$1, %eax
+.Lmismatch_head:
+	ret
 #else /* memcmp */
-.Luneq2nd:
-	sub		$16, %rcx		# undo half the increment
-
-.Luneq1st:
-	tzcnt		%eax, %eax		# find first mismatch
-	add		%rcx, %rax		# location of first mismatch
-	movzbl		-16(%rsi, %rax, 1), %ecx
-	movzbl		-16(%rdi, %rax, 1), %eax
+.Lmismatch_head:
+	tzcnt		%eax, %eax		# location of mismatch
+	add		%rax, %rcx		# pointer to mismatch
+	movzbl		(%rcx), %eax		# mismatching bytes
+	movzbl		(%rcx, %rsi, 1), %ecx
 	sub		%ecx, %eax
 	ret
-#endif /* ifdef(BCMP) */
+
+.Lmismatch:
+	movdqu		-48(%rsi, %rdi, 1), %xmm1
+	pcmpeqb		-48(%rdi), %xmm1	# reconstruct xmm1 before PAND
+	pmovmskb	%xmm0, %eax		# mismatches in first 16 bytes
+	pmovmskb	%xmm1, %edx		# mismatches in second 16 bytes
+	shl		$16, %edx
+	or		%edx, %eax		# mismatches in both
+	not		%eax			# matches in both
+	tzcnt		%eax, %eax		# location of mismatch
+	add		%rax, %rdi		# pointer to mismatch
+	movzbl		-64(%rdi), %eax		# mismatching bytes
+	movzbl		-64(%rdi, %rsi, 1), %ecx
+	sub		%ecx, %eax
+	ret
+#endif
 ARCHEND(memcmp, baseline)
 
 	.section .note.GNU-stack,"",%progbits
