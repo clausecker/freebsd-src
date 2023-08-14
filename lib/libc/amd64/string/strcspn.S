@@ -155,7 +155,7 @@ ARCHENTRY(strcspn, x86_64_v2)
 	and		$0xf, %ecx		# amount of bytes rsi is past alignment
 	xor		%edx, %edx
 	pcmpeqb		%xmm0, %xmm1		# end of string reached?
-	movdqa		%xmm1, (%rsp)		# transfer head of set to stack
+	movdqa		%xmm0, 32(%rsp)		# transfer head of set to stack
 	pmovmskb	%xmm1, %eax
 	shr		%cl, %eax		# clear out junk before string
 	test		%eax, %eax		# end of set reached?
@@ -166,8 +166,8 @@ ARCHENTRY(strcspn, x86_64_v2)
 	sub		%ecx, %edx		# length of set preceding xmm0
 	pxor		%xmm1, %xmm1
 	pcmpeqb		%xmm0, %xmm1
-	movdqa		%xmm0, 16(%rsp)
-	movdqu		(%rsp, %rcx, 1), %xmm2	# head of set
+	movdqa		%xmm0, 48(%rsp)
+	movdqu		32(%rsp, %rcx, 1), %xmm2 # head of set
 	pmovmskb	%xmm1, %eax
 	test		%eax, %eax
 	jnz		1f
@@ -176,12 +176,12 @@ ARCHENTRY(strcspn, x86_64_v2)
 	add		$16, %edx
 	pxor		%xmm1, %xmm1
 	pcmpeqb		%xmm0, %xmm1
-	movdqa		%xmm0, 32(%rsp)
+	movdqa		%xmm0, 64(%rsp)
 	pmovmskb	%xmm1, %eax
 	test		%eax, %eax		# still not done?
 	jz		.Lgt32v2
 
-0:	movdqu		(%rsp, %rcx, 1), %xmm2	# head of set
+0:	movdqu		32(%rsp, %rcx, 1), %xmm2 # head of set
 1:	tzcnt		%eax, %eax
 	add		%eax, %edx		# length of set (excluding NUL byte)
 	cmp		$32, %edx		# above 32 bytes?
@@ -195,20 +195,20 @@ ARCHENTRY(strcspn, x86_64_v2)
 	 * last byte to fill up the xmm register.
 	 */
 	mov		%rdi, %rax		# save original string pointer
-	lea		15(%rdi), %ecx		# last byte of the head
-	xor		%edi, %ecx
-	test		$PAGE_SIZE, %ecx	# does the head cross a page?
+	lea		15(%rdi), %esi		# last byte of the head
+	xor		%edi, %esi
+	test		$PAGE_SIZE, %esi	# does the head cross a page?
 	jz		0f
 
 	/* head crosses page: copy to stack to fix up */
-	movzbl		15(%rdi), %ecx		# last head byte
-	and		$0xf, %rax		# align head pointer temporarily
+	and		$~0xf, %rax		# align head pointer temporarily
+	movzbl		15(%rax), %esi		# last head byte on the page
 	movdqa		(%rax), %xmm0
 	movabs		$0x0101010101010101, %r8
-	imul		%r8, %rcx		# repeated 8 times
+	imul		%r8, %rsi		# repeated 8 times
 	movdqa		%xmm0, (%rsp)		# head word on stack
-	mov		%rcx, 16(%rsp)		# followed by filler (last byte x8)
-	mov		%rcx, 24(%rsp)
+	mov		%rsi, 16(%rsp)		# followed by filler (last byte x8)
+	mov		%rsi, 24(%rsp)
 	mov		%edi, %eax
 	and		$0xf, %eax		# offset of head from alignment
 	add		%rsp, %rax		# pointer to fake head
@@ -256,7 +256,7 @@ ARCHENTRY(strcspn, x86_64_v2)
 	ret
 
 .Lgt16v2:
-	movdqu		16(%rsp, %rcx, 1), %xmm3 # second part of set
+	movdqu		48(%rsp, %rcx, 1), %xmm3 # second part of set
 
 	/* set is 17--32 bytes in size */
 	pcmpistri	$0, %xmm0, %xmm2	# match in head?
@@ -275,7 +275,7 @@ ARCHENTRY(strcspn, x86_64_v2)
 	pcmpistri	$0, %xmm0, %xmm2
 	jbe		3b
 	pcmpistri	$0, %xmm0, %xmm3
-	jae		0f			# ZF=1 not possible here
+	jae		0b			# ZF=1 not possible here
 
 	sub		$16, %rax		# go back to second half
 1:	add		%rcx, %rax
@@ -294,6 +294,7 @@ ARCHENTRY(strcspn, x86_64_v2)
 	mov	%eax, %esi		# find this character
 	call	CNAME(strchrnul)
 	sub	(%rsp), %rax		# length of prefix before match
+	leave
 	ret
 
 	/* set is >=33 bytes in size */
