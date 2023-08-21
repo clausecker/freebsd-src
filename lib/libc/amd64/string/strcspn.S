@@ -39,6 +39,11 @@ ARCHFUNCS(strcspn)
 	ARCHFUNC(strcspn, x86_64_v2)
 ENDARCHFUNCS(strcspn)
 
+	.section	.rodata
+	.p2align	4
+.Lbits:	.8byte		0x8040201008040201
+	.8byte		0x8040201008040201
+
 ARCHENTRY(strcspn, scalar)
 	push	%rbp			# align stack to enable function call
 	mov	%rsp, %rbp
@@ -126,18 +131,17 @@ ARCHEND(strcspn, scalar)
 
 	/*
 	 * This kernel uses pcmpistri to do the heavy lifting.
-	 * We provide five code paths, depending on set size:
+	 * We provide three code paths, depending on set size:
 	 *
 	 *      0: call strlen()
 	 *      1: call strchr()
-	 *  2--16: one pcmpistri per 16 bytes of input
-	 * 17--32: two pcmpistri per 16 bytes of input
-	 *   >=33: fall back to look up table
+	 *    >=2: adapted from Muła/Langdale algorithm
+	 *         http://0x80.pl/articles/simd-byte-lookup.html
 	 */
 ARCHENTRY(strcspn, x86_64_v2)
 	push		%rbp
 	mov		%rsp, %rbp
-	sub		$256, %rsp
+	sub		$32, %rsp
 
 	/* check for special cases */
 	movzbl		(%rsi), %eax
@@ -147,139 +151,91 @@ ARCHENTRY(strcspn, x86_64_v2)
 	cmpb		$0, 1(%rsi)		# single character string?
 	jz		.Lstrchrv2
 
-	/* find set size and copy up to 32 bytes to (%rsp) */
-	mov		%esi, %ecx
-	and		$~0xf, %rsi		# align set pointer
-	movdqa		(%rsi), %xmm0
-	pxor		%xmm1, %xmm1
-	and		$0xf, %ecx		# amount of bytes rsi is past alignment
-	xor		%edx, %edx
-	pcmpeqb		%xmm0, %xmm1		# end of string reached?
-	movdqa		%xmm0, 32(%rsp)		# transfer head of set to stack
-	pmovmskb	%xmm1, %eax
-	shr		%cl, %eax		# clear out junk before string
-	test		%eax, %eax		# end of set reached?
-	jnz		0f
+	movdqa		.Lbits(%rip), %xmm6	# 0102..4080 x2
 
-	movdqa		16(%rsi), %xmm0		# second chunk of the set
-	mov		$16, %edx
-	sub		%ecx, %edx		# length of set preceding xmm0
-	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm0, %xmm1
-	movdqa		%xmm0, 48(%rsp)
-	movdqu		32(%rsp, %rcx, 1), %xmm2 # head of set
-	pmovmskb	%xmm1, %eax
-	test		%eax, %eax
-	jnz		1f
+	/* clear out look up table */
+	pxor		%xmm3, %xmm3
+	movdqa		%xmm3, -32(%rbp)
+	movdqa		%xmm3, -16(%rbp)
 
-	movdqa		32(%rsi), %xmm0		# third chunk
-	add		$16, %edx
-	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm0, %xmm1
-	movdqa		%xmm0, 64(%rsp)
-	pmovmskb	%xmm1, %eax
-	test		%eax, %eax		# still not done?
-	jz		.Lgt32v2
-
-0:	movdqu		32(%rsp, %rcx, 1), %xmm2 # head of set
-1:	tzcnt		%eax, %eax
-	add		%eax, %edx		# length of set (excluding NUL byte)
-	cmp		$32, %edx		# above 32 bytes?
-	ja		.Lgt32v2
-
-	/*
-	 * At this point we know that we want to use pcmpistri.
-	 * one last problem obtains: the head of the string is not
-	 * aligned and may cross a cacheline.  If this is the case,
-	 * we take the part before the page boundary and repeat the
-	 * last byte to fill up the xmm register.
-	 */
-	mov		%rdi, %rax		# save original string pointer
-	lea		15(%rdi), %esi		# last byte of the head
-	xor		%edi, %esi
-	test		$PAGE_SIZE, %esi	# does the head cross a page?
-	jz		0f
-
-	/* head crosses page: copy to stack to fix up */
-	and		$~0xf, %rax		# align head pointer temporarily
-	movzbl		15(%rax), %esi		# last head byte on the page
-	movdqa		(%rax), %xmm0
-	movabs		$0x0101010101010101, %r8
-	imul		%r8, %rsi		# repeated 8 times
-	movdqa		%xmm0, (%rsp)		# head word on stack
-	mov		%rsi, 16(%rsp)		# followed by filler (last byte x8)
-	mov		%rsi, 24(%rsp)
-	mov		%edi, %eax
-	and		$0xf, %eax		# offset of head from alignment
-	add		%rsp, %rax		# pointer to fake head
-
-0:	movdqu		(%rax), %xmm0		# load head (fake or real)
-	lea		16(%rdi), %rax
-	and		$~0xf, %rax		# second 16 bytes of string (aligned)
-1:	cmp		$16, %edx		# 16--32 bytes?
-	ja		.Lgt16v2
-
-
-	/* set is 2--16 bytes in size */
-
-	/* _SIDD_UBYTE_OPS|_SIDD_CMP_EQUAL_ANY|_SIDD_LEAST_SIGNIFICANT */
-	pcmpistri	$0, %xmm0, %xmm2	# match in head?
-	jbe		.Lheadmatchv2
+	/* build look up table */
+	movb		$1, -32(%rbp)		# NUL is always in the set
 
 	ALIGN_TEXT
-0:	pcmpistri	$0, (%rax), %xmm2
-	jbe		1f			# match or end of string?
-	pcmpistri	$0, 16(%rax), %xmm2
-	lea		32(%rax), %rax
-	ja		0b			# match or end of string?
+0:	mov		%eax, %ecx
+	and		$0xf, %eax		# low nibble
+	shr		$4, %ecx		# high nibble
+	mov		$1, %edx
+	shl		%cl, %edx		# the bit we are interested in
+	or		%dl, -32(%rbp, %rax, 1)	# apply bit to low LUT
+	or		%dh, -16(%rbp, %rax, 1)	# apply bit to high LUT
+	inc		%rsi
+	movzbl		(%rsi), %eax
+	test		%eax, %eax		# end of string?
+	jnz		0b
 
-3:	lea		-16(%rax), %rax		# go back to second half
-1:	jc		2f			# jump if match found
-	movdqa		(%rax), %xmm0		# reload string piece
-	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm1, %xmm0		# where is the NUL byte?
-	pmovmskb	%xmm0, %ecx
-	tzcnt		%ecx, %ecx		# location of NUL byte in (%rax)
-2:	sub		%rdi, %rax		# offset of %xmm0 from beginning of string
-	add		%rcx, %rax		# prefix length before match/NUL
+	/* prepare for string */
+	mov		%rdi, %rax		# retain copy of buffer pointer
+	and		$~0xf, %rax		# align source to 16 bytes
+	movdqa		(%rax), %xmm0		# load head of string
+	movdqa		-32(%rbp), %xmm4	# low LUT
+	movdqa		-16(%rbp), %xmm5	# high LUT
+	pcmpeqb		%xmm7, %xmm7		# FFFF..FFFF x2
+	pavgb		%xmm3, %xmm7		# 8080..8080 x2
+	mov		%edi, %ecx
+	and		$0xf, %ecx		# offset from alignment
+	mov		$0xffff, %edx
+	shl		%cl, %edx		# bits where the string is in xmm0
+	add		$16, %rax		# advance to next iteration
+
+	/* process head */
+	movdqa		%xmm4, %xmm1		# low LUT copy
+	movdqa		%xmm5, %xmm2		# high LUT copy
+	pshufb		%xmm0, %xmm1		# look up high nibble masks of 0x--7x
+	pxor		%xmm7, %xmm0		# flip sign bits
+	pshufb		%xmm0, %xmm2		# look up high nibble masks of 8x--fx
+	psrld		$4, %xmm0		# retrieve high nibbles
+	por		%xmm2, %xmm1		# join high nibble masks
+	movdqa		%xmm7, %xmm2		# 8080..8080 copy
+	pandn		%xmm0, %xmm2		# fix up index for pshufb
+	movdqa		%xmm6, %xmm0		# 0102..4080 copy
+	pshufb		%xmm2, %xmm0		# 1 << (char >> 4 & 7)
+	pand		%xmm0, %xmm1		# test if bits present
+	pcmpeqb		%xmm0, %xmm1		# FF if match or 00 otherwise
+	pmovmskb	%xmm1, %esi		# bit set if match
+	and		%esi, %edx		# masked to bits in the string
+	jnz		.Lheadmatchv2
+
+	ALIGN_TEXT
+0:	movdqa		(%rax), %xmm0
+	movdqa		%xmm4, %xmm1		# low LUT copy
+	movdqa		%xmm5, %xmm2		# high LUT copy
+	add		$16, %rax
+	pshufb		%xmm0, %xmm1		# look up high nibble masks of 0x--7x
+	pxor		%xmm7, %xmm0		# flip sign bits
+	pshufb		%xmm0, %xmm2		# look up high nibble masks of 8x--fx
+	psrld		$4, %xmm0		# retrieve high nibbles
+	por		%xmm2, %xmm1		# join high nibble masks
+	movdqa		%xmm7, %xmm2		# 8080..8080 copy
+	pandn		%xmm0, %xmm2		# fix up index for pshufb
+	movdqa		%xmm6, %xmm0		# 0102..4080 copy
+	pshufb		%xmm2, %xmm0		# 1 << (char >> 4 & 7)
+	ptest		%xmm0, %xmm1		# any match?
+	jz		0b
+
+	pand		%xmm0, %xmm1		# compute match bitmask
+	pcmpeqb		%xmm0, %xmm1		# FF where there is a match
+	pmovmskb	%xmm1, %ecx
+	sub		%rdi, %rax		# length of processed prefix + 16
+	sub		$16, %rax		# length of processed prefix
+	tzcnt		%ecx, %ecx		# location of first match in %xmm1
+	add		%rcx, %rax
 	leave
 	ret
 
 .Lheadmatchv2:
-	jc		2f			# jump if match found
-	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm1, %xmm0
-	pmovmskb	%xmm0, %ecx
-	tzcnt		%ecx, %ecx		# location of NUL byte
-2:	mov		%ecx, %eax		# prefix length before match/NUL
-	leave
-	ret
-
-.Lgt16v2:
-	movdqu		48(%rsp, %rcx, 1), %xmm3 # second part of set
-
-	/* set is 17--32 bytes in size */
-	pcmpistri	$0, %xmm0, %xmm2	# match in head?
-	jbe		.Lheadmatchv2
-	pcmpistri	$0, %xmm0, %xmm3	# ZF=1 not possible here
-	jb		.Lheadmatchv2
-
-	ALIGN_TEXT
-0:	movdqa		(%rax), %xmm0
-	pcmpistri	$0, %xmm0, %xmm2
-	jbe		1b
-	pcmpistri	$0, %xmm0, %xmm3
-	jb		1f			# ZF=1 not possible here
-	movdqa		16(%rax), %xmm0
-	add		$32, %rax
-	pcmpistri	$0, %xmm0, %xmm2
-	jbe		3b
-	pcmpistri	$0, %xmm0, %xmm3
-	jae		0b			# ZF=1 not possible here
-
-	sub		$16, %rax		# go back to second half
-1:	add		%rcx, %rax
-	sub		%rdi, %rax
+	tzcnt		%edx, %eax		# location of match in xmm0
+	sub		%ecx, %eax		# location of match in string
 	leave
 	ret
 
@@ -294,73 +250,6 @@ ARCHENTRY(strcspn, x86_64_v2)
 	mov	%eax, %esi		# find this character
 	call	CNAME(strchrnul)
 	sub	(%rsp), %rax		# length of prefix before match
-	leave
-	ret
-
-	/* set is >=33 bytes in size */
-.Lgt32v2:
-	xorps	%xmm0, %xmm0
-	mov	$256-64, %edx
-
-	/* clear out look up table */
-0:	movaps	%xmm0, (%rsp, %rdx, 1)
-	movaps	%xmm0, 16(%rsp, %rdx, 1)
-	movaps	%xmm0, 32(%rsp, %rdx, 1)
-	movaps	%xmm0, 48(%rsp, %rdx, 1)
-	sub	$64, %edx
-	jnc	0b
-
-	add	%rcx, %rsi		# restore string pointer
-	mov	%rdi, %rax		# keep a copy of the string
-
-	/* initialise look up table */
-	ALIGN_TEXT
-0:	movzbl	(%rsi), %ecx
-	movb	$1, (%rsp, %rcx, 1)
-	test	%ecx, %ecx
-	jz	1f
-
-	movzbl	1(%rsi), %ecx
-	movb	$1, (%rsp, %rcx, 1)
-	test	%ecx, %ecx
-	jz	1f
-
-	movzbl	2(%rsi), %ecx
-	movb	$1, (%rsp, %rcx, 1)
-	test	%ecx, %ecx
-	jz	1f
-
-	movzbl	3(%rsi), %ecx
-	movb	$1, (%rsp, %rcx, 1)
-	test	%ecx, %ecx
-	jz	1f
-
-	add	$4, %rsi
-	jmp	0b
-
-	/* find match */
-	ALIGN_TEXT
-1:	movzbl	(%rax), %ecx
-	cmpb	$0, (%rsp, %rcx, 1)
-	jne	2f
-
-	movzbl	1(%rax), %ecx
-	cmpb	$0, (%rsp, %rcx, 1)
-	jne	3f
-
-	movzbl	2(%rax), %ecx
-	cmpb	$0, (%rsp, %rcx, 1)
-	jne	4f
-
-	movzbl	3(%rax), %ecx
-	add	$4, %rax
-	cmpb	$0, (%rsp, %rcx, 1)
-	je	1b
-
-	sub	$3, %rax
-4:	dec	%rdi
-3:	inc	%rax
-2:	sub	%rdi, %rax		# number of characters preceding match
 	leave
 	ret
 ARCHEND(strcspn, x86_64_v2)
