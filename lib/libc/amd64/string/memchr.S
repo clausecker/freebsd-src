@@ -32,11 +32,13 @@
 
 #define ALIGN_TEXT      .p2align 4,0x90 /* 16-byte alignment, nop filled */
 
-ARCHFUNCS(memchr)
-	ARCHFUNC(memchr, scalar)
-ENDARCHFUNCS(memchr)
+        .weak memchr
+        .set memchr, __memchr
+ARCHFUNCS(__memchr)
+	ARCHFUNC(__memchr, scalar)
+ENDARCHFUNCS(__memchr)
 
-ARCHENTRY(memchr, scalar)
+ARCHENTRY(__memchr, scalar)
 	test	%rdx, %rdx	# empty input?
 	je	.Lnomatch
 
@@ -117,6 +119,6 @@ ARCHENTRY(memchr, scalar)
 .Lnomatch:
 	xor	%eax, %eax	# return null pointer
 	ret
-ARCHEND(memchr, scalar)
+ARCHEND(__memchr, scalar)
 
 	.section .note.GNU-stack,"",%progbits
