@@ -36,7 +36,7 @@
         .set memchr, __memchr
 ARCHFUNCS(__memchr)
 	ARCHFUNC(__memchr, scalar)
-//	ARCHFUNC(__memchr, baseline)
+	ARCHFUNC(__memchr, baseline)
 ENDARCHFUNCS(__memchr)
 
 ARCHENTRY(__memchr, scalar)
@@ -113,7 +113,95 @@ ARCHENTRY(__memchr, scalar)
 ARCHEND(__memchr, scalar)
 
 ARCHENTRY(__memchr, baseline)
-	ud2
+	test		%rdx, %rdx		# empty input?
+	je		.Lnomatchb
+
+	mov		%edi, %ecx
+	add		%rdi, %rdx		# pointer to end of buffer
+	and		$~0x1f, %rdi		# align to 32 bytes
+	movdqa		(%rdi), %xmm0		# load first 32 bytes
+	movdqa		16(%rdi), %xmm1
+
+	movd		%esi, %xmm2
+	punpcklbw	%xmm2, %xmm2		# c -> cc
+	punpcklwd	%xmm2, %xmm2		# cc -> cccc
+	pshufd		$0, %xmm2, %xmm2	# cccc -> cccccccccccccccc
+
+	mov		$-1, %eax
+	shl		%cl, %eax		# bytes in XMM0:XMM1 that are part of the buffer
+
+	mov		$-1, %r8d
+	mov		%edx, %ecx
+	neg		%ecx
+	shr		%cl, %r8d		# bytes in tail that are part of the buffer
+
+	add		$32, %rdi		# advance to next 32 bytes
+	cmp		%rdx, %rdi		# end of buffer reached during head?
+	jb		1f
+
+	/* buffer does not cross 32 byte boundary */
+	and		%eax, %r8d		# buffer is intersection of head and tail
+	jmp		.Ltailb
+
+	/* process head */
+1:	pcmpeqb		%xmm2, %xmm1
+	pcmpeqb		%xmm2, %xmm0
+	pmovmskb	%xmm1, %esi
+	pmovmskb	%xmm0, %ecx
+	shl		$16, %esi
+	or		%esi, %ecx		# locations of matches
+	and		%ecx, %eax		# any match inside buffer?
+	jnz		.Lprecisematchb
+
+	movdqa		(%rdi), %xmm0
+	movdqa		16(%rdi), %xmm1
+	add		$32, %rdi
+	cmp		%rdx, %rdi		# ready for main loop?
+	jae		.Ltailb
+
+	/* main loop */
+	ALIGN_TEXT
+0:	pcmpeqb		%xmm2, %xmm0
+	pcmpeqb		%xmm2, %xmm1
+	por		%xmm1, %xmm0		# match in either half?
+	pmovmskb	%xmm0, %eax
+	test		%eax, %eax
+	jnz		.Lmatchb
+
+	movdqa		(%rdi), %xmm0
+	movdqa		16(%rdi), %xmm1
+	add		$32, %rdi
+	cmp		%rdx, %rdi
+	jb		0b
+
+.Ltailb:
+	pcmpeqb		%xmm2, %xmm1
+	pcmpeqb		%xmm2, %xmm0
+	pmovmskb	%xmm1, %edx
+	pmovmskb	%xmm0, %eax
+	shl		$16, %edx
+	or		%edx, %eax		# location of matches
+	and		%r8d, %eax		# mask out matches beyond buffer
+	bsf		%eax, %edx		# location of match
+	lea		-32(%rdi, %rdx, 1), %rdx # pointer to match (if any)
+	cmovnz		%rdx, %rax		# point to match if present,
+	ret					# else null pointer
+
+.Lmatchb:
+	pcmpeqb		-32(%rdi), %xmm2	# redo comparison of first 16 bytes
+	pmovmskb	%xmm1, %ecx
+	pmovmskb	%xmm2, %eax
+	shl		$16, %ecx
+	or		%ecx, %eax		# location of matches
+
+.Lprecisematchb:
+	tzcnt		%eax, %eax		# find location of match
+	lea		-32(%rdi, %rax, 1), %rax # point to matching byte
+	ret
+
+.Lnomatchb:
+	xor	%eax, %eax	# return null pointer
+	ret
 ARCHEND(__memchr, baseline)
 
 	.section .note.GNU-stack,"",%progbits
