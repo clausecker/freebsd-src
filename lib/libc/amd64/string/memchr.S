@@ -45,68 +45,50 @@ ARCHENTRY(__memchr, scalar)
 	mov	%edi, %ecx
 	add	%rdi, %rdx	# pointer to end of buffer
 	and	$~7, %rdi	# align to 8 bytes
+	mov	(%rdi), %rax	# load first word
 	movzbl	%sil, %esi	# clear stray high bits
 	movabs	$0x0101010101010101, %r8
-	mov	(%rdi), %rax	# load first word
 	imul	%r8, %rsi	# replicate char 8 times
 	movabs	$0x8080808080808080, %r9
 	add	$8, %rdi	# advance to next 8 bytes
 
 	/* compute head and tail masks */
 	shl	$3, %ecx
-	mov	%r9, %r10
-	shl	%cl, %r10	# 0x80 where string head is
+	mov	%r8, %r10
+	shl	%cl, %r10	# 0x01 where string head is
+	xor	%r8, %r10	# 0x01 where it is not
+
+	neg	%r8		# negate 01..01 so we can use lea
+	xor	%rsi, %rax	# str ^ c (0x00 where str[i] == c)
+	or	%r10, %rax	# except before the string
+
 	mov	%edx, %ecx
 	neg	%ecx
 	mov	%r9, %r11
 	shl	$3, %ecx
 	shr	%cl, %r11	# 0x80 where string tail is
-	neg	%r8		# negate 01..01 so we can use lea
-	mov	%r10, %rcx
-	and	%r11, %rcx	# head and tail for short inputs
 
 	cmp	%rdx, %rdi	# end of buffer reached during head?
-	jae	.Lheadtail	# and go to tail-processing code
-
-	/* process head */
-	xor	%rsi, %rax	# str ^ c
-	lea	(%rax, %r8, 1), %rcx # (str ^ c) - 0x01..01
-	not	%rax		# ~(str ^ c)
-	and	%rcx, %rax	# ((str^c) - 0x01..01) & ~(str^c)
-	and	%r10, %rax	# not including junk bytes or bytes no in string
-	jnz	.Lmatch
-
-	mov	(%rdi), %rax
-	add	$8, %rdi
-	cmp	%rdx, %rdi
-	jae	.Ltail
+	jae	.Ltail		# and go to tail-processing code
 
 	/* main loop */
 	ALIGN_TEXT
-0:	xor	%rsi, %rax	# str ^ c
-	lea	(%rax, %r8, 1), %rcx # (str ^ c) - 0x01..01
+0:	lea	(%rax, %r8, 1), %rcx # (str ^ c) - 0x01..01
 	not	%rax		# ~(str ^ c)
 	and	%rcx, %rax	# ((str^c) - 0x01..01) & ~(str^c)
-	and	%r9, %rax	# not including junk bytes or bytes no in string
+	and	%r9, %rax	# not including junk bytes
 	jnz	.Lmatch
 
 	mov	(%rdi), %rax
 	add	$8, %rdi
+	xor	%rsi, %rax	# str ^ c
 	cmp	%rdx, %rdi
 	jb	0b
 
-	/*
-	 * this move enables use of the modified tail mask
-	 * if the string does not cross a 16 byte boundary
-	 */
-.Ltail:	mov	%r11, %rcx
-
-.Lheadtail:
-	xor	%rsi, %rax
-	lea	(%rax, %r8, 1), %r11
-	not	%rax
-	and	%r11, %rax
-	and	%rcx, %rax
+.Ltail:	lea	(%rax, %r8, 1), %rcx # (str ^ c) - 0x01..01
+	not	%rax		# ~(str ^ c)
+	and	%rcx, %rax	# ((str^c) - 0x01..01) & ~(str^c)
+	and	%r11, %rax	# not including junk bytes or bytes past buffer
 	jz	.Lnomatch
 
 .Lmatch:
