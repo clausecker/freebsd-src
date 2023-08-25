@@ -36,47 +36,56 @@
         .set memchr, __memchr
 ARCHFUNCS(__memchr)
 	ARCHFUNC(__memchr, scalar)
+//	ARCHFUNC(__memchr, baseline)
 ENDARCHFUNCS(__memchr)
 
 ARCHENTRY(__memchr, scalar)
 	test	%rdx, %rdx	# empty input?
 	je	.Lnomatch
 
-	mov	%edi, %ecx
+	lea	(, %rdi, 8), %ecx
 	add	%rdi, %rdx	# pointer to end of buffer
 	and	$~7, %rdi	# align to 8 bytes
 	mov	(%rdi), %rax	# load first word
 	movzbl	%sil, %esi	# clear stray high bits
 	movabs	$0x0101010101010101, %r8
 	imul	%r8, %rsi	# replicate char 8 times
-	movabs	$0x8080808080808080, %r9
-	add	$8, %rdi	# advance to next 8 bytes
 
 	/* compute head and tail masks */
-	shl	$3, %ecx
 	mov	%r8, %r10
+	movabs	$0x8080808080808080, %r9
 	shl	%cl, %r10	# 0x01 where string head is
+	lea	(, %rdx, 8), %ecx
 	xor	%r8, %r10	# 0x01 where it is not
-
 	neg	%r8		# negate 01..01 so we can use lea
-	xor	%rsi, %rax	# str ^ c (0x00 where str[i] == c)
-	or	%r10, %rax	# except before the string
-
-	mov	%edx, %ecx
-	neg	%ecx
 	mov	%r9, %r11
-	shl	$3, %ecx
+	xor	%rsi, %rax	# str ^ c (0x00 where str[i] == c)
+	neg	%ecx
+	or	%r10, %rax	# except before the string
 	shr	%cl, %r11	# 0x80 where string tail is
 
+	add	$8, %rdi	# advance to next 8 bytes
 	cmp	%rdx, %rdi	# end of buffer reached during head?
 	jae	.Ltail		# and go to tail-processing code
 
-	/* main loop */
+	/* main loop, unrolled twice */
 	ALIGN_TEXT
 0:	lea	(%rax, %r8, 1), %rcx # (str ^ c) - 0x01..01
 	not	%rax		# ~(str ^ c)
-	and	%rcx, %rax	# ((str^c) - 0x01..01) & ~(str^c)
-	and	%r9, %rax	# not including junk bytes
+	and	%r9, %rax	# ((str^c) - 0x01..01) & ~(str^c)
+	and	%rcx, %rax	# not including junk bytes
+	jnz	.Lmatch
+
+	mov	(%rdi), %rax
+	add	$8, %rdi
+	xor	%rsi, %rax	# str ^ c
+	cmp	%rdx, %rdi
+	jae	.Ltail
+
+	lea	(%rax, %r8, 1), %rcx # (str ^ c) - 0x01..01
+	not	%rax		# ~(str ^ c)
+	and	%r9, %rax	# ((str^c) - 0x01..01) & ~(str^c)
+	and	%rcx, %rax	# not including junk bytes
 	jnz	.Lmatch
 
 	mov	(%rdi), %rax
@@ -87,8 +96,8 @@ ARCHENTRY(__memchr, scalar)
 
 .Ltail:	lea	(%rax, %r8, 1), %rcx # (str ^ c) - 0x01..01
 	not	%rax		# ~(str ^ c)
-	and	%rcx, %rax	# ((str^c) - 0x01..01) & ~(str^c)
-	and	%r11, %rax	# not including junk bytes or bytes past buffer
+	and	%r11, %rax	# ((str^c) - 0x01..01) & ~(str^c)
+	and	%rcx, %rax	# not including junk bytes or bytes past buffer
 	jz	.Lnomatch
 
 .Lmatch:
@@ -102,5 +111,9 @@ ARCHENTRY(__memchr, scalar)
 	xor	%eax, %eax	# return null pointer
 	ret
 ARCHEND(__memchr, scalar)
+
+ARCHENTRY(__memchr, baseline)
+	ud2
+ARCHEND(__memchr, baseline)
 
 	.section .note.GNU-stack,"",%progbits
