@@ -45,6 +45,8 @@ ATF_TC_BODY(memchr_basic, tc)
 		{ "/abcde",		6, 1, 0 },
 		{ "/abcdef",		7, 1, 0 },
 		{ "/abcdefg",		8, 1, 0 },
+		{ "/abcdefgh",		9, 1, 0 },
+		{ "/abcdefghi",		10, 1, 0 },
 
 		{ "a/",			1, 0, 0 },
 		{ "a/",			2, 1, 1 },
@@ -54,6 +56,8 @@ ATF_TC_BODY(memchr_basic, tc)
 		{ "a/bcde",		6, 1, 1 },
 		{ "a/bcdef",		7, 1, 1 },
 		{ "a/bcdefg",		8, 1, 1 },
+		{ "a/bcdefgh",		9, 1, 1 },
+		{ "a/bcdefghi",		10, 1, 1 },
 
 		{ "ab/",		2, 0, 0 },
 		{ "ab/",		3, 1, 2 },
@@ -62,6 +66,8 @@ ATF_TC_BODY(memchr_basic, tc)
 		{ "ab/cde",		6, 1, 2 },
 		{ "ab/cdef",		7, 1, 2 },
 		{ "ab/cdefg",		8, 1, 2 },
+		{ "ab/cdefgh",		9, 1, 2 },
+		{ "ab/cdefghi",		10, 1, 2 },
 
 		{ "abc/",		3, 0, 0 },
 		{ "abc/",		4, 1, 3 },
@@ -69,24 +75,41 @@ ATF_TC_BODY(memchr_basic, tc)
 		{ "abc/de",		6, 1, 3 },
 		{ "abc/def",		7, 1, 3 },
 		{ "abc/defg",		8, 1, 3 },
+		{ "abc/defgh",		9, 1, 3 },
+		{ "abc/defghi",		10, 1, 3 },
 
 		{ "abcd/",		4, 0, 0 },
 		{ "abcd/",		5, 1, 4 },
 		{ "abcd/e",		6, 1, 4 },
 		{ "abcd/ef",		7, 1, 4 },
 		{ "abcd/efg",		8, 1, 4 },
+		{ "abcd/efgh",		9, 1, 4 },
+		{ "abcd/efghi",		10, 1, 4 },
 
 		{ "abcde/",		5, 0, 0 },
 		{ "abcde/",		6, 1, 5 },
 		{ "abcde/f",		7, 1, 5 },
 		{ "abcde/fg",		8, 1, 5 },
+		{ "abcde/fgh",		9, 1, 5 },
+		{ "abcde/fghi",		10, 1, 5 },
 
 		{ "abcdef/",		6, 0, 0 },
 		{ "abcdef/",		7, 1, 6 },
 		{ "abcdef/g",		8, 1, 6 },
+		{ "abcdef/gh",		9, 1, 6 },
+		{ "abcdef/ghi",		10, 1, 6 },
 
 		{ "abcdefg/",		7, 0, 0 },
 		{ "abcdefg/",		8, 1, 7 },
+		{ "abcdefg/h",		9, 1, 7 },
+		{ "abcdefg/hi",		10, 1, 7 },
+
+		{ "abcdefgh/",		8, 0, 0 },
+		{ "abcdefgh/",		9, 1, 8 },
+		{ "abcdefgh/i",		10, 1, 8 },
+
+		{ "abcdefghi/",		9, 0, 0 },
+		{ "abcdefghi/",		10, 1, 9 },
 
 		{ "\xff\xff\xff\xff" "efg/",	8, 1, 7 },
 		{ "a" "\xff\xff\xff\xff" "fg/",	8, 1, 7 },
