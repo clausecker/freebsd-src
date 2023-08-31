@@ -34,6 +34,7 @@
 
 ARCHFUNCS(timingsafe_bcmp)
 	ARCHFUNC(timingsafe_bcmp, scalar)
+	ARCHFUNC(timingsafe_bcmp, baseline)
 ENDARCHFUNCS(timingsafe_bcmp)
 
 ARCHENTRY(timingsafe_bcmp, scalar)
@@ -87,7 +88,7 @@ ARCHENTRY(timingsafe_bcmp, scalar)
 	/* more than 16 bytes: process buffer in a loop */
 .Lgt16:	mov	(%rdi), %rax		# process first 16 bytes
 	mov	8(%rdi), %r9
-	mov	$32, %rcx
+	mov	$32, %ecx
 	xor	(%rsi), %rax
 	xor	8(%rsi), %r9
 	or	%r9, %rax
@@ -118,5 +119,114 @@ ARCHENTRY(timingsafe_bcmp, scalar)
 	setnz	%al
 	ret
 ARCHEND(timingsafe_bcmp, scalar)
+
+ARCHENTRY(timingsafe_bcmp, baseline)
+	cmp	$32, %rdx		# at least 33 bytes to process?
+	jae	.Lgt32b
+
+	cmp	$16, %edx		# at least 17 bytes to process?
+	jae	.L1732b
+
+	cmp	$8, %edx		# at least 9 bytes to process?
+	jae	.L0916b
+
+	cmp	$4, %edx		# at least 5 bytes to process?
+	jae	.L0508b
+
+	cmp	$2, %edx		# at least 3 bytes to process?
+	jae	.L0304b
+
+	test	%edx, %edx		# buffer empty?
+	jnz	.L0102b
+
+	xor	%eax, %eax		# empty buffer always matches
+	ret
+
+.L0102b:
+	movzbl	(%rdi), %eax		# load 1--2 bytes from first buffer
+	movzbl	-1(%rdi, %rdx, 1), %ecx
+	xor	(%rsi), %al		# xor in second buffer
+	xor	-1(%rsi, %rdx, 1), %cl
+	or	%ecx, %eax		# mismatch in any of the two?
+	ret
+
+.L0304b:
+	movzwl	(%rdi), %eax
+	movzwl	-2(%rdi, %rdx, 1), %ecx
+	xor	(%rsi), %ax
+	xor	-2(%rsi, %rdx, 1), %cx
+	or	%ecx, %eax
+	ret
+
+.L0508b:
+	mov	(%rdi), %eax
+	mov	-4(%rdi, %rdx, 1), %ecx
+	xor	(%rsi), %eax
+	xor	-4(%rsi, %rdx, 1), %ecx
+	or	%ecx, %eax
+	ret
+
+.L0916b:
+	mov	(%rdi), %rax
+	mov	-8(%rdi, %rdx, 1), %rcx
+	xor	(%rsi), %rax
+	xor	-8(%rsi, %rdx, 1), %rcx
+	or	%rcx, %rax
+	setnz	%al			# ensure EAX nonzero even if only
+	ret				# high bits of RAX were set
+
+.L1732b:
+	movdqu		(%rdi), %xmm0
+	movdqu		(%rsi), %xmm2
+	movdqu		-16(%rdi, %rdx, 1), %xmm1
+	movdqu		-16(%rsi, %rdx, 1), %xmm3
+	pcmpeqb		%xmm2, %xmm0
+	pcmpeqb		%xmm3, %xmm1
+	pand		%xmm1, %xmm0
+	pmovmskb	%xmm0, %eax	# 1 where equal
+	xor		$0xffff, %eax	# 1 where not equal
+	ret
+
+	/* more than 32 bytes: process buffer in a loop */
+.Lgt32b:
+	movdqu		(%rdi), %xmm4
+	movdqu		(%rsi), %xmm2
+	movdqu		16(%rdi), %xmm1
+	movdqu		16(%rsi), %xmm3
+	mov		$64, %ecx
+	pcmpeqb		%xmm2, %xmm4
+	pcmpeqb		%xmm3, %xmm1
+	pand		%xmm1, %xmm4
+	cmp		%rdx, %rcx	# enough left for a full iteration?
+	jae		.Ltail
+
+	/* main loop processing 32 bytes per iteration */
+	ALIGN_TEXT
+0:	movdqu		-32(%rdi, %rcx, 1), %xmm0
+	movdqu		-32(%rsi, %rcx, 1), %xmm2
+	movdqu		-16(%rdi, %rcx, 1), %xmm1
+	movdqu		-16(%rsi, %rcx, 1), %xmm3
+	add		$32, %rcx
+	pcmpeqb		%xmm2, %xmm0
+	pcmpeqb		%xmm3, %xmm1
+	pand		%xmm1, %xmm0
+	pand		%xmm0, %xmm4
+	cmp		%rdx, %rcx
+	jb		0b
+
+	/* process last 32 bytes */
+.Ltailb:
+	movdqu		-32(%rdi, %rdx, 1), %xmm0
+	movdqu		-32(%rsi, %rdx, 1), %xmm2
+	movdqu		-16(%rdi, %rdx, 1), %xmm1
+	movdqu		-16(%rsi, %rdx, 1), %xmm3
+	pcmpeqb		%xmm2, %xmm0
+	pcmpeqb		%xmm3, %xmm1
+	pand		%xmm1, %xmm0
+	pand		%xmm4, %xmm0
+	pmovmskb	%xmm0, %eax
+	xor		$0xffff, %eax
+	ret
+ARCHEND(timingsafe_bcmp, baseline)
 
 	.section .note.GNU-stack,"",%progbits
