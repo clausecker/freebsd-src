@@ -198,7 +198,7 @@ ARCHENTRY(timingsafe_bcmp, baseline)
 	pcmpeqb		%xmm3, %xmm1
 	pand		%xmm1, %xmm4
 	cmp		%rdx, %rcx	# enough left for a full iteration?
-	jae		.Ltail
+	jae		.Ltailb
 
 	/* main loop processing 32 bytes per iteration */
 	ALIGN_TEXT
