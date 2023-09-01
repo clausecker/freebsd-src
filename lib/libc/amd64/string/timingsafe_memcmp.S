@@ -110,59 +110,41 @@ ARCHENTRY(timingsafe_memcmp, scalar)
 	/* compare 17+ bytes */
 .Lgt16:	mov	(%rdi), %r8		# process first 16 bytes
 	mov	(%rsi), %r9
-	mov	8(%rdi), %r10
-	mov	8(%rsi), %r11
-	mov	$32, %ecx		# loop counter
-	bswap	%r10			# convert to big endian
+	mov	$32, %ecx
+	cmp	%r8, %r9		# mismatch in head?
+	cmove	8(%rdi), %r8		# if not, try second pair
+	cmove	8(%rsi), %r9
+	cmp	%rdx, %rcx
+	jae	.Ltail
+
+	/* main loop processing 16 bytes per iteration */
+	ALIGN_TEXT
+0:	mov	-16(%rdi, %rcx, 1), %r10
+	mov	-16(%rsi, %rcx, 1), %r11
+	cmp	%r10, %r11		# mismatch in fist pair?
+	cmove	-8(%rdi, %rcx, 1), %r10	# if not, try second pair
+	cmove	-8(%rsi, %rcx, 1), %r11
+	cmp	%r8, %r9		# was there a mismatch previously?
+	cmove	%r10, %r8		# apply new pair if there was not
+	cmove	%r11, %r9
+	add	$16, %rcx
+	cmp	%rdx, %rcx
+	jb	0b
+
+.Ltail:	mov	-8(%rdi, %rdx, 1), %r10
+	mov	-8(%rsi, %rdx, 1), %r11
+	cmp	%r8, %r9
+	cmove	-16(%rdi, %rdx, 1), %r8
+	cmove	-16(%rsi, %rdx, 1), %r9
+	bswap	%r10			# compare in big endian
 	bswap	%r11
 	bswap	%r8
 	bswap	%r9
 	sub	%r11, %r10
 	sbb	%r9, %r8
 	sbb	%eax, %eax		# -1 if less, 0 if greater or equal
-	or	%r8, %r10		# nonzero if not equal
+	or	%r10, %r8		# nonzero if not equal
 	setnz	%al			# negative if <, 0 if =, 1 if >
-
-	cmp	%rdx, %rcx
-	jae	.Ltail
-
-	/* main loop processing 16 bytes per iteration */
-	ALIGN_TEXT
-0:	mov	-16(%rdi, %rcx, 1), %r8
-	mov	-16(%rsi, %rcx, 1), %r9
-	mov	-8(%rdi, %rcx, 1), %r10
-	mov	-8(%rsi, %rcx, 1), %r11
-	add	$16, %rcx
-	bswap	%r10
-	bswap	%r11
-	bswap	%r8
-	bswap	%r9
-	sub	%r11, %r10
-	sbb	%r9, %r8
-	sbb	%r9d, %r9d
-	or	%r8, %r10
-	setnz	%r9b
-	test	%eax, %eax		# was there a mismatch before?
-	cmovz	%r9d, %eax		# if not, this iteration may be relevant
-	cmp	%rdx, %rcx
-	jb	0b
-
-	/* process last 16 bytes */
-.Ltail:	mov	-8(%rdi, %rdx, 1), %r10
-	mov	-8(%rsi, %rdx, 1), %r11
-	mov	-16(%rdi, %rdx, 1), %r8
-	mov	-16(%rsi, %rdx, 1), %r9
-	bswap	%r10
-	bswap	%r11
-	bswap	%r8
-	bswap	%r9
-	sub	%r11, %r10
-	sbb	%r9, %r8
-	sbb	%r9d, %r9d
-	or	%r8, %r10
-	setnz	%r9b
-	test	%eax, %eax		# was there a mismatch before?
-	cmovz	%r9d, %eax		# if not, this iteration may be relevant
 	ret
 ARCHEND(timingsafe_memcmp, scalar)
 
