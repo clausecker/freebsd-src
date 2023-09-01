@@ -39,16 +39,16 @@ ENDARCHFUNCS(timingsafe_bcmp)
 
 ARCHENTRY(timingsafe_bcmp, scalar)
 	cmp	$16, %rdx		# at least 17 bytes to process?
-	jae	.Lgt16
+	ja	.Lgt16
 
 	cmp	$8, %edx		# at least 9 bytes to process?
-	jae	.L0916
+	ja	.L0916
 
 	cmp	$4, %edx		# at least 5 bytes to process?
-	jae	.L0508
+	ja	.L0508
 
 	cmp	$2, %edx		# at least 3 bytes to process?
-	jae	.L0304
+	ja	.L0304
 
 	test	%edx, %edx		# buffer empty?
 	jnz	.L0102
@@ -122,19 +122,19 @@ ARCHEND(timingsafe_bcmp, scalar)
 
 ARCHENTRY(timingsafe_bcmp, baseline)
 	cmp	$32, %rdx		# at least 33 bytes to process?
-	jae	.Lgt32b
+	ja	.Lgt32b
 
 	cmp	$16, %edx		# at least 17 bytes to process?
-	jae	.L1732b
+	ja	.L1732b
 
 	cmp	$8, %edx		# at least 9 bytes to process?
-	jae	.L0916b
+	ja	.L0916b
 
 	cmp	$4, %edx		# at least 5 bytes to process?
-	jae	.L0508b
+	ja	.L0508b
 
 	cmp	$2, %edx		# at least 3 bytes to process?
-	jae	.L0304b
+	ja	.L0304b
 
 	test	%edx, %edx		# buffer empty?
 	jnz	.L0102b
