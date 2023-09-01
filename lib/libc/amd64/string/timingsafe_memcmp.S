@@ -34,6 +34,7 @@
 
 ARCHFUNCS(timingsafe_memcmp)
 	ARCHFUNC(timingsafe_memcmp, scalar)
+	ARCHFUNC(timingsafe_memcmp, baseline)
 ENDARCHFUNCS(timingsafe_memcmp)
 
 ARCHENTRY(timingsafe_memcmp, scalar)
@@ -164,5 +165,134 @@ ARCHENTRY(timingsafe_memcmp, scalar)
 	cmovz	%r9d, %eax		# if not, this iteration may be relevant
 	ret
 ARCHEND(timingsafe_memcmp, scalar)
+
+ARCHENTRY(timingsafe_memcmp, baseline)
+	cmp	$16, %rdx		# at least 17 bytes to process?
+	ja	.Lgt16b
+
+	cmp	$8, %edx		# at least 9 bytes to process?
+	ja	.L0916b
+
+	cmp	$4, %edx		# at least 5 bytes to process?
+	ja	.L0508b
+
+	cmp	$2, %edx		# at least 3 bytes to process?
+	ja	.L0304b
+
+	test	%edx, %edx		# buffer empty?
+	jnz	.L0102b
+
+	xor	%eax, %eax		# empty buffer always matches
+	ret
+
+.L0102b:
+	movzbl	-1(%rdi, %rdx, 1), %eax	# load 1--2 bytes from first buffer
+	movzbl	-1(%rsi, %rdx, 1), %ecx
+	mov	(%rdi), %ah		# in big endian
+	mov	(%rsi), %ch
+	sub	%ecx, %eax
+	ret
+
+.L0304b:
+	movzwl	-2(%rdi, %rdx, 1), %ecx
+	movzwl	-2(%rsi, %rdx, 1), %edx
+	movzwl	(%rdi), %eax
+	movzwl	(%rsi), %esi
+	bswap	%ecx			# convert to big endian
+	bswap	%edx			# dito for edx, (e)ax, and (e)si
+	rol	$8, %ax			# ROLW is used here so the upper two
+	rol	$8, %si			# bytes stay clear, allowing us to
+	sub	%edx, %ecx		# save a SBB compared to .L0508
+	sbb	%esi, %eax
+	or	%eax, %ecx		# nonzero if not equal
+	setnz	%al
+	ret
+
+.L0508b:
+	mov	-4(%rdi, %rdx, 1), %ecx
+	mov	-4(%rsi, %rdx, 1), %edx
+	mov	(%rdi), %edi
+	mov	(%rsi), %esi
+	bswap	%ecx			# compare in big endian
+	bswap	%edx
+	bswap	%edi
+	bswap	%esi
+	sub	%edx, %ecx
+	sbb	%esi, %edi
+	sbb	%eax, %eax		# -1 if less, 0 if greater or equal
+	or	%edi, %ecx		# nonzero if not equal
+	setnz	%al			# negative if <, 0 if =, 1 if >
+	ret
+
+.L0916b:
+	mov	-8(%rdi, %rdx, 1), %rcx
+	mov	-8(%rsi, %rdx, 1), %rdx
+	mov	(%rdi), %rdi
+	mov	(%rsi), %rsi
+	bswap	%rcx			# compare in big endian
+	bswap	%rdx
+	bswap	%rdi
+	bswap	%rsi
+	sub	%rdx, %rcx
+	sbb	%rsi, %rdi
+	sbb	%eax, %eax		# -1 if less, 0 if greater or equal
+	or	%rdi, %rcx		# nonzero if not equal
+	setnz	%al			# negative if <, 0 if =, 1 if >
+	ret
+
+	/* compare 17+ bytes */
+.Lgt16b:
+	movdqu		(%rdi), %xmm0
+	movdqu		(%rsi), %xmm1
+	mov		$32, %ecx
+	movdqa		%xmm0, %xmm2
+	pminub		%xmm1, %xmm0	# min(a, b)
+	pcmpeqb		%xmm1, %xmm2	# a == b
+	pcmpeqb		%xmm1, %xmm0	# b == min(a, b) -> a >= b
+	pmovmskb	%xmm2, %eax	# bit set where a == b
+	pmovmskb	%xmm0, %r8d	# bit set where a > b
+
+	cmp		%rdx, %rcx	# enough left for a full iteration?
+	jae		.Ltailb
+
+	/* main loop processing 16 bytes per iteration */
+	ALIGN_TEXT
+0:	movdqu		-16(%rdi, %rcx, 1), %xmm0
+	movdqu		-16(%rsi, %rcx, 1), %xmm1
+	add		$16, %rcx
+	movdqa		%xmm0, %xmm2
+	pminub		%xmm1, %xmm0	# min(a, b)
+	pcmpeqb		%xmm1, %xmm2	# a == b
+	pcmpeqb		%xmm1, %xmm0	# b == min(a, b) -> a >= b
+	pmovmskb	%xmm2, %r9d
+	pmovmskb	%xmm0, %r10d
+	cmp		$0xffff, %eax	# has there been a mismatch already?
+	cmove		%r9d, %eax	# if not, perhaps in this iteration?
+	cmove		%r10d, %r8d
+	cmp		%rdx, %rcx
+	jb		0b
+
+.Ltailb:
+	movdqu		-16(%rdi, %rdx, 1), %xmm0
+	movdqu		-16(%rsi, %rdx, 1), %xmm1
+	movdqa		%xmm0, %xmm2
+	pminub		%xmm1, %xmm0	# min(a, b)
+	pcmpeqb		%xmm1, %xmm2	# a == b
+	pcmpeqb		%xmm1, %xmm0	# b == min(a, b) -> a >= b
+	pmovmskb	%xmm2, %esi
+	pmovmskb	%xmm0, %edi
+	cmp		$0xffff, %eax	# has there been a mismatch already?
+	cmove		%esi, %eax	# if not, perhaps in the tail?
+	cmovne		%r8d, %edi
+
+	/* turn data in eax, r8d into negative/zero/positive result */
+	lea		1(%rax), %ecx
+	xor		$0xffff, %eax	# bits set where there is a mismatch
+	and		%ecx, %eax	# single bit for first mismatch or 0
+	and		%eax, %edi	# single bit if first mismatch was >
+	neg		%eax
+	lea		(%rax, %rdi, 2), %eax # 2 * (a >= b) - (a != 0)
+	ret
+ARCHEND(timingsafe_memcmp, baseline)
 
 	.section .note.GNU-stack,"",%progbits
