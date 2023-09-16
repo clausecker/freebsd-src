@@ -1,6 +1,14 @@
-/*
- * Written by J.T. Conklin <jtc@acorntoolworks.com>
- * Public domain.
+/*-
+ * Copyright (c) 2023, The FreeBSD Foundation
+ *
+ * SPDX-License-Expression: BSD-2-Clause
+ *
+ * Portions of this software were developed by Robert Clausecker
+ * <fuz@FreeBSD.org> under sponsorship from the FreeBSD Foundation.
+ *
+ * Adapted from NetBSD's common/lib/libc/arch/x86_64/string/strcmp.S
+ * written by J.T. Conklin <jtc@acorntoolworks.com> that was originally
+ * dedicated to the public domain.
  */
 
 #include <machine/asm.h>
@@ -8,7 +16,15 @@
 	RCSID("$NetBSD: strcmp.S,v 1.3 2004/07/19 20:04:41 drochner Exp $")
 #endif
 
-ENTRY(strcmp)
+#include "amd64_archlevel.h"
+
+#define ALIGN_TEXT	.p2align 4, 0x90
+
+ARCHFUNCS(strcmp)
+	ARCHFUNC(strcmp, scalar)
+ENDARCHFUNCS(strcmp)
+
+ARCHENTRY(strcmp, scalar)
 	/*
 	 * Align s1 to word boundary.
 	 * Consider unrolling loop?
@@ -39,7 +55,7 @@ ENTRY(strcmp)
 	movabsq	$0x8080808080808080,%r9
 	subq	$8,%rsi
 
-	.align	4
+	ALIGN_TEXT
 .Lword_loop:
 	movq	8(%rdi),%rax
 	addq	$8,%rdi
@@ -53,7 +69,7 @@ ENTRY(strcmp)
 	testq	%r9,%rdx
 	je	.Lword_loop
 
-	.align	4
+	ALIGN_TEXT
 .Lbyte_loop:
 	movb	(%rdi),%al
 	incq	%rdi
@@ -69,6 +85,6 @@ ENTRY(strcmp)
 	movzbq	%dl,%rdx
 	subq	%rdx,%rax
 	ret
-END(strcmp)
+ARCHEND(strcmp, scalar)
 
 	.section .note.GNU-stack,"",%progbits
