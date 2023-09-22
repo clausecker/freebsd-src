@@ -239,9 +239,9 @@ ARCHENTRY(strcmp, baseline)
 	pcmpeqb		%xmm1, %xmm0		# are the two strings identical?
 	pmovmskb	%xmm0, %eax		# let's find out
 	lea		-16(%rsp, %rdx, 1), %rsi
-	and		%r11d, %eax		# matches within the string
-	xor		$0xffff, %eax		# mismatches within the string
-	cmovz		%r11d, %eax		# or all bits in the string if no mismatch
+	not		%eax			# mismatches between the chunks
+	and		%r11d, %eax		# mismatches between the string
+	cmovz		%r11d, %eax		# or all chars in the string if no mismatch
 	tzcnt		%eax, %eax		# location of first mismatch (or first char if none)
 	movzbl		(%rsi, %rax, 1), %ecx	# characters at location of mismatch
 	movzbl		(%rdi, %rax, 1), %eax
@@ -257,7 +257,7 @@ ARCHENTRY(strcmp, baseline)
 	movdqu		-16(%rsp, %rdx, 1), %xmm1 # load RSI string from its beginning
 	shr		%cl, %r11d		# location of NUL byte in XMM1
 	lea		-1(%r11), %ecx
-	and		%r11d, %ecx		# bytes in XMM1 that are part of the string
+	xor		%r11d, %ecx		# bytes in XMM1 that are part of the string
 	add		%rax, %rdi		# make RDI and RSI point to strings again
 	add		%rdx, %rsi
 	pcmpeqb		%xmm1, %xmm0		# where do the strings match?
