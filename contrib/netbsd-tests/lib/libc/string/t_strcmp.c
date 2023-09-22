@@ -2,6 +2,10 @@
 
 /*
  * Written by J.T. Conklin <jtc@acorntoolworks.com>
+ *
+ * Portions of this software were developed by Robert Clausecker
+ * <fuz@FreeBSD.org> under sponsorship from the FreeBSD Foundation.
+ *
  * Public domain.
  */
 
@@ -10,6 +14,9 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <dlfcn.h>
+
+int (*volatile strcmp_fn)(const char *, const char *);
 
 ATF_TC(strcmp_basic);
 ATF_TC_HEAD(strcmp_basic, tc)
@@ -19,9 +26,6 @@ ATF_TC_HEAD(strcmp_basic, tc)
 
 ATF_TC_BODY(strcmp_basic, tc)
 {
-	/* try to trick the compiler */
-	int (*f)(const char *, const char *s) = strcmp;
-
 	unsigned int a0, a1, t;
 	char buf0[64];
 	char buf1[64];
@@ -81,7 +85,7 @@ ATF_TC_BODY(strcmp_basic, tc)
 				memcpy(&buf1[a1], tab[t].val1,
 				       strlen(tab[t].val1) + 1);
 
-				ret = f(&buf0[a0], &buf1[a1]);
+				ret = strcmp_fn(&buf0[a0], &buf1[a1]);
 
 				if ((ret == 0 && tab[t].ret != 0) ||
 				    (ret <  0 && tab[t].ret >= 0) ||
@@ -108,26 +112,32 @@ ATF_TC_BODY(strcmp_simple, tc)
 	char buf1[10] = "xxx";
 	char buf2[10] = "xxy";
 
-	ATF_CHECK(strcmp(buf1, buf1) == 0);
-	ATF_CHECK(strcmp(buf2, buf2) == 0);
+	ATF_CHECK(strcmp_fn(buf1, buf1) == 0);
+	ATF_CHECK(strcmp_fn(buf2, buf2) == 0);
 
-	ATF_CHECK(strcmp("x\xf6x", "xox") > 0);
-	ATF_CHECK(strcmp("xxx", "xxxyyy") < 0);
-	ATF_CHECK(strcmp("xxxyyy", "xxx") > 0);
+	ATF_CHECK(strcmp_fn("x\xf6x", "xox") > 0);
+	ATF_CHECK(strcmp_fn("xxx", "xxxyyy") < 0);
+	ATF_CHECK(strcmp_fn("xxxyyy", "xxx") > 0);
 
-	ATF_CHECK(strcmp(buf1 + 0, buf2 + 0) < 0);
-	ATF_CHECK(strcmp(buf1 + 1, buf2 + 1) < 0);
-	ATF_CHECK(strcmp(buf1 + 2, buf2 + 2) < 0);
-	ATF_CHECK(strcmp(buf1 + 3, buf2 + 3) == 0);
+	ATF_CHECK(strcmp_fn(buf1 + 0, buf2 + 0) < 0);
+	ATF_CHECK(strcmp_fn(buf1 + 1, buf2 + 1) < 0);
+	ATF_CHECK(strcmp_fn(buf1 + 2, buf2 + 2) < 0);
+	ATF_CHECK(strcmp_fn(buf1 + 3, buf2 + 3) == 0);
 
-	ATF_CHECK(strcmp(buf2 + 0, buf1 + 0) > 0);
-	ATF_CHECK(strcmp(buf2 + 1, buf1 + 1) > 0);
-	ATF_CHECK(strcmp(buf2 + 2, buf1 + 2) > 0);
-	ATF_CHECK(strcmp(buf2 + 3, buf1 + 3) == 0);
+	ATF_CHECK(strcmp_fn(buf2 + 0, buf1 + 0) > 0);
+	ATF_CHECK(strcmp_fn(buf2 + 1, buf1 + 1) > 0);
+	ATF_CHECK(strcmp_fn(buf2 + 2, buf1 + 2) > 0);
+	ATF_CHECK(strcmp_fn(buf2 + 3, buf1 + 3) == 0);
 }
 
 ATF_TP_ADD_TCS(tp)
 {
+	void *dl_handle;
+
+	dl_handle = dlopen(NULL, RTLD_LAZY);
+	strcmp_fn = dlsym(dl_handle, "test_strcmp");
+	if (strcmp_fn == NULL)
+		strcmp_fn = strcmp;
 
 	ATF_TP_ADD_TC(tp, strcmp_basic);
 	ATF_TP_ADD_TC(tp, strcmp_simple);
