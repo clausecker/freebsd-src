@@ -106,40 +106,36 @@ ARCHENTRY(strcmp, baseline)
 	cmovb		%ecx, %edx
 	sbb		%ecx, %ecx	# EAX >= EDX ? 0 : -1
 
-	movdqa		(%rdi), %xmm0	# load aligned heads
 	movdqa		(%rsi), %xmm1
+	movdqa		(%rdi), %xmm0	# load aligned heads
 
 	push		%rcx		# free ECX for shift amounts
 	movdqu		%xmm1, -16(%rsp) # stash a copy of (RSI) for use in runt cases
 	mov		$-1, %r8d
 	mov		$-1, %r9d
 	mov		%eax, %ecx
-	shl		%cl, %r8d	# bits in xmm0 that are part of the string
+	shl		%cl, %r8d	# bits in XMM0 that are part of the string
 	mov		%edx, %ecx
-	shl		%cl, %r9d	# bits in xmm1 that are part of the string
+	shl		%cl, %r9d	# bits in XMM1 that are part of the string
 	pxor		%xmm2, %xmm2
 	pxor		%xmm3, %xmm3
-	pcmpeqb		%xmm0, %xmm2	# any NUL bytes present?
-	pcmpeqb		%xmm1, %xmm3
+	pcmpeqb		%xmm0, %xmm2	# NUL byte present in first string?
+	pcmpeqb		%xmm1, %xmm3	# NUL byte present in second string?
 	pmovmskb	%xmm2, %r10d
-	pmovmskb	%xmm3, %r11d
-	and		%r8d, %r10d	# EOS in first string?
+	and		%r8d, %r10d	# EOS in first chunk of (RDI)?
 	jnz		.Lrdi_runt
-	and		%r9d, %r11d	# EOS in second string?
-	jnz		.Lrsi_runt
 
-	/*
-	 * If we get here, neither of the strings ends before the first
-	 * 16 byte boundary.  Proceed by comparing aligned pointers only:
-	 * in each iteration, we check if the second string ends in the
-	 * current 16 byte chunk.  If not, we check if the first string
-	 * chunk matches the corresponding possibly unaligned chunk of
-	 * the first string.  This incurs an extra load, but avoids a
-	 * lot of shuffling.
-	 */
-	sub		%rax, %rdx
-	lea		16(%rsi, %rdx, 1), %rdx # point RDX to offset in second string
-					# corresponding to RDI+16 in first string
+	sub		%rdx, %rax
+	movdqu		(%rdi, %rax, 1), %xmm4	# chunk of first string corresponding to (RSI)
+	pcmpeqb		%xmm1, %xmm4	# where do they match?
+	pandn		%xmm4, %xmm3	# where do they match and are not NUL?
+	pmovmskb	%xmm3, %r10d
+	xor		$0xffff, %r10d	# where do they mismatch or are NUL?
+	and		%r9d, %r10d	# ... within the first chunk of (RSI)?
+	jnz		.Learly_mismatch_or_nul
+
+	lea		16(%rsi), %rdx	# point RDX to offset in second string
+	sub		%rax, %rdx	# corresponding to RDI+16 in first string
 	add		$16, %rdi	# advance aligned pointers
 	add		$16, %rsi
 
@@ -185,18 +181,16 @@ ARCHENTRY(strcmp, baseline)
 
 	/* a NUL has been found in RSI */
 .Lnul_found:
-	mov		%edx, %ecx
+	mov		%esi, %ecx
 	mov		%r8d, %r9d
-	sub		%esi, %ecx
+	sub		%edx, %ecx
 	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RDX
 	lea		-1(%r8), %r10d
-	not		%eax		# turn matches into mismatches
+	xor		$0xffff, %eax	# turn matches into mismatches
 	xor		%r8d, %r10d	# all bytes in the string (including NUL)
 	and		%r10d, %eax	# was there a mismatch in the string?
+	or		%r8w, %ax	# or did the string end in RDX?
 	jnz		.Lmismatch
-
-	test		%r8d, %r8d	# did the string end inside RDX?
-	jz		.Lequal		# if yes, the strings must be equal
 
 	/*
 	 * (RDI) == (RSI) and NUL is past the string.
@@ -204,10 +198,12 @@ ARCHENTRY(strcmp, baseline)
 	 * of the other string until the NUL byte.
 	 */
 	sub		%rcx, %rdi	# retard RDI to correspond to RSI
+	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
 	movdqu		-16(%rdi), %xmm0
 	pcmpeqb		-16(%rsi), %xmm0
-	pmovmskb	%xmm0, %eax
-	and		%r9d, %eax	# mask out bytes past the end of the string
+	pmovmskb	%xmm0, %eax	# mask of matches
+	not		%eax		# mask of mismatches
+	and		%r10d, %eax	# mask of mismatches in string
 	bsf		%eax, %ecx	# location of first mismatch
 	cmovz		%eax, %ecx	# or 0 if there is none
 	movzbl		-16(%rdi, %rcx, 1), %eax
@@ -216,11 +212,6 @@ ARCHENTRY(strcmp, baseline)
 	sub		%ecx, %eax
 	xor		%edx, %eax
 	sub		%edx, %eax
-	ret
-
-.Lequal:
-	xor		%eax, %eax
-	pop		%rcx
 	ret
 
 	/*
@@ -249,26 +240,15 @@ ARCHENTRY(strcmp, baseline)
 	sub		%ecx, %eax
 	xor		%edx, %eax
 	sub		%edx, %eax
-	ret
+	ret	
 
-	/* RSI has an early NUL byte, but RDI does not! */
-.Lrsi_runt:
-	movdqu		(%rdi, %rax, 1), %xmm0	# load RDI string from its beginning
-	movdqu		-16(%rsp, %rdx, 1), %xmm1 # load RSI string from its beginning
-	shr		%cl, %r11d		# location of NUL byte in XMM1
-	lea		-1(%r11), %ecx
-	xor		%r11d, %ecx		# bytes in XMM1 that are part of the string
-	add		%rax, %rdi		# make RDI and RSI point to strings again
-	add		%rdx, %rsi
-	pcmpeqb		%xmm1, %xmm0		# where do the strings match?
-	pmovmskb	%xmm0, %eax
-	not		%eax			# where do the strings not match?
-	and		%ecx, %eax		# but only inside the string
-	bsf		%eax, %ecx		# location of first mismatch
-	cmovz		%eax, %ecx		# or 0 if no mismatch
-	movzbl		(%rdi, %rcx, 1), %eax	# characters at location of mismatch
-	movzbl		(%rsi, %rcx, 1), %ecx
-	pop		%rdx
+	/* RSI and RDI mismatch or end in the head */
+.Learly_mismatch_or_nul:
+	tzcnt		%r10d, %r10d		# offset of first mismatch or NUL from RDI
+	lea		(%rdi, %rax, 1), %rdi	# address of 2nd string chunk corresponding to RDI
+	movzbl		(%rsi, %r10, 1), %ecx
+	movzbl		(%rdi, %r10, 1), %eax	# characters at location of mismatch
+	pop		%rdx			# string swap indicator
 	sub		%ecx, %eax
 	xor		%edx, %eax
 	sub		%edx, %eax
