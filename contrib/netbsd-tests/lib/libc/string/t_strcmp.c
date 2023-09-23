@@ -145,6 +145,10 @@ alignment_testcase(char *a, char *b, int want)
 	ATF_CHECK_MSG(want == (res > 0) - (res < 0),
 	    "strcmp(%p \"%s\", %p \"%s\") = %d != %d",
 	    (void *)a, a, (void *)b, b, res, want);
+
+	/* repeat testcase so we can debug it */
+	if (want != (res > 0) - (res < 0))
+		(void)strcmp_fn(a, b);
 }
 
 static void
