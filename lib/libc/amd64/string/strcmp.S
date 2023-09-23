@@ -197,7 +197,7 @@ ARCHENTRY(strcmp, baseline)
 	 * Compare (RSI) with the corresponding part
 	 * of the other string until the NUL byte.
 	 */
-	sub		%rcx, %rdi	# retard RDI to correspond to RSI
+	add		%rcx, %rdi	# advance RDI to correspond to RSI
 	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
 	movdqu		-16(%rdi), %xmm0
 	pcmpeqb		-16(%rsi), %xmm0
