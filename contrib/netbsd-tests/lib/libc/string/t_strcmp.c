@@ -196,10 +196,12 @@ check_strcmp_alignments(char a[], char b[],
 ATF_TC_BODY(strcmp_alignments, tc)
 {
 	size_t a_off, b_off, len, pos;
-	char a[64+16+2], b[64+16+2];
+	char a[64+16+3], b[64+16+3];
 
 	memset(a, '-', sizeof(a));
 	memset(b, '-', sizeof(b));
+	a[sizeof(a) - 1] = '\0';
+	b[sizeof(b) - 1] = '\0';
 
 	for (a_off = 0; a_off < 16; a_off++)
 		for (b_off = 0; b_off < 16; b_off++)
