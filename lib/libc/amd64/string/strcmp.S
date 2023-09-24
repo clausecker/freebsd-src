@@ -134,10 +134,10 @@ ARCHENTRY(strcmp, baseline)
 	and		%r9d, %r10d	# ... within the first chunk of (RSI)?
 	jnz		.Learly_mismatch_or_nul
 
-	lea		16(%rsi), %rdx	# point RDX to offset in second string
-	sub		%rax, %rdx	# corresponding to RDI+16 in first string
+	sub		%rdi, %rsi	# express RSI as distance from RDI
+	mov		%rsi, %rdx	# point RDX to offset in second string
+	sub		%rax, %rdx	# corresponding to RDI in first string
 	add		$16, %rdi	# advance aligned pointers
-	add		$16, %rsi
 
 	/*
 	 * During the main loop, the layout of the two strings is something like:
@@ -154,14 +154,12 @@ ARCHENTRY(strcmp, baseline)
 	 * and 2 at this point, this also ensures that RDI has not ended yet.
 	 */
 	ALIGN_TEXT
-0:	movdqu		(%rdx), %xmm0	# chunk of 2nd string corresponding to RDI?
+0:	movdqu		(%rdi, %rdx, 1), %xmm0 # chunk of 2nd string corresponding to RDI?
 	pxor		%xmm1, %xmm1
-	pcmpeqb		(%rsi), %xmm1	# end of string in RSI?
+	pcmpeqb		(%rdi, %rsi, 1), %xmm1 # end of string in RSI?
 	pcmpeqb		(%rdi), %xmm0	# where do the chunks match?
 	pmovmskb	%xmm1, %r8d
 	pmovmskb	%xmm0, %r9d
-	add		$16, %rdx
-	add		$16, %rsi
 	add		$16, %rdi
 	test		%r8d, %r8d
 	jnz		.Lnul_found
@@ -171,6 +169,7 @@ ARCHENTRY(strcmp, baseline)
 	/* a mismatch has been found between RDX and RSI */
 .Lmismatch:
 	tzcnt		%r9d, %r9d	# where is the mismatch?
+	add		%rdi, %rdx	# turn RDX from offset to pointer
 	movzbl		-16(%rdx, %r9, 1), %ecx
 	movzbl		-16(%rdi, %r9, 1), %eax
 	pop		%rdx		# string swap indicator
@@ -196,7 +195,8 @@ ARCHENTRY(strcmp, baseline)
 	 * of the other string until the NUL byte.
 	 */
 	movdqu		-16(%rdi, %rax, 1), %xmm0
-	pcmpeqb		-16(%rsi), %xmm0
+	pcmpeqb		-16(%rdi, %rsi, 1), %xmm0
+	add		%rdi, %rsi	# restore RSI pointer
 	add		%rax, %rdi	# advance RDI to correspond to RSI
 	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
 	pmovmskb	%xmm0, %eax	# mask of matches
@@ -221,7 +221,7 @@ ARCHENTRY(strcmp, baseline)
 	 */
 .Lrdi_runt:
 	sub		%rax, %rdx		# adjustment from RSI to RDI alignment
-	movdqu		-16(%rsp, %rdx, 1), %xmm1 # load RDI-aligned copy of RSI strin
+	movdqu		-16(%rsp, %rdx, 1), %xmm1 # load RDI-aligned copy of RSI string
 	lea		-1(%r10), %r11d
 	xor		%r10d, %r11d		# characters not after end of string in RDI
 	and		%r8d, %r11d		# characters in string in RDI
@@ -243,7 +243,7 @@ ARCHENTRY(strcmp, baseline)
 	/* RSI and RDI mismatch or end in the head */
 .Learly_mismatch_or_nul:
 	tzcnt		%r10d, %r10d		# offset of first mismatch or NUL from RDI
-	lea		(%rdi, %rax, 1), %rdi	# address of 2nd string chunk corresponding to RDI
+	add		%rax, %rdi		# address of 2nd string chunk corresponding to RDI
 	movzbl		(%rsi, %r10, 1), %ecx
 	movzbl		(%rdi, %r10, 1), %eax	# characters at location of mismatch
 	pop		%rdx			# string swap indicator
