@@ -113,12 +113,12 @@ ARCHENTRY(strcmp, baseline)
 	movdqu		%xmm1, -16(%rsp) # stash a copy of (RSI) for use in runt cases
 	mov		$-1, %r8d
 	mov		$-1, %r9d
+	pxor		%xmm2, %xmm2
+	pxor		%xmm3, %xmm3
 	mov		%eax, %ecx
 	shl		%cl, %r8d	# bits in XMM0 that are part of the string
 	mov		%edx, %ecx
 	shl		%cl, %r9d	# bits in XMM1 that are part of the string
-	pxor		%xmm2, %xmm2
-	pxor		%xmm3, %xmm3
 	pcmpeqb		%xmm0, %xmm2	# NUL byte present in first string?
 	pcmpeqb		%xmm1, %xmm3	# NUL byte present in second string?
 	pmovmskb	%xmm2, %r10d
@@ -159,20 +159,20 @@ ARCHENTRY(strcmp, baseline)
 	pcmpeqb		(%rsi), %xmm1	# end of string in RSI?
 	pcmpeqb		(%rdi), %xmm0	# where do the chunks match?
 	pmovmskb	%xmm1, %r8d
-	pmovmskb	%xmm0, %eax
+	pmovmskb	%xmm0, %r9d
 	add		$16, %rdx
 	add		$16, %rsi
 	add		$16, %rdi
 	test		%r8d, %r8d
 	jnz		.Lnul_found
-	xor		$0xffff, %eax	# any mismatches?
+	xor		$0xffff, %r9d	# any mismatches?
 	jz		0b
 
 	/* a mismatch has been found between RDX and RSI */
 .Lmismatch:
-	tzcnt		%eax, %eax	# where is the mismatch?
-	movzbl		-16(%rdx, %rax, 1), %ecx
-	movzbl		-16(%rdi, %rax, 1), %eax
+	tzcnt		%r9d, %r9d	# where is the mismatch?
+	movzbl		-16(%rdx, %r9, 1), %ecx
+	movzbl		-16(%rdi, %r9, 1), %eax
 	pop		%rdx		# string swap indicator
 	sub		%ecx, %eax	# difference of the mismatching chars
 	xor		%edx, %eax	# negate difference if strings were swapped
@@ -181,15 +181,13 @@ ARCHENTRY(strcmp, baseline)
 
 	/* a NUL has been found in RSI */
 .Lnul_found:
-	mov		%esi, %ecx
-	mov		%r8d, %r9d
-	sub		%edx, %ecx
+	mov		%eax, %ecx
 	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RDX
 	lea		-1(%r8), %r10d
-	xor		$0xffff, %eax	# turn matches into mismatches
+	xor		$0xffff, %r9d	# turn matches into mismatches
 	xor		%r8d, %r10d	# all bytes in the string (including NUL)
-	and		%r10d, %eax	# was there a mismatch in the string?
-	or		%r8w, %ax	# or did the string end in RDX?
+	or		%r8d, %r9d	# NUL bytes also count as mismatches
+	and		%r10w, %r9w	# was there a mismatch in the string?
 	jnz		.Lmismatch
 
 	/*
@@ -197,10 +195,10 @@ ARCHENTRY(strcmp, baseline)
 	 * Compare (RSI) with the corresponding part
 	 * of the other string until the NUL byte.
 	 */
-	add		%rcx, %rdi	# advance RDI to correspond to RSI
-	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
-	movdqu		-16(%rdi), %xmm0
+	movdqu		-16(%rdi, %rax, 1), %xmm0
 	pcmpeqb		-16(%rsi), %xmm0
+	add		%rax, %rdi	# advance RDI to correspond to RSI
+	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
 	pmovmskb	%xmm0, %eax	# mask of matches
 	not		%eax		# mask of mismatches
 	and		%r10d, %eax	# mask of mismatches in string
