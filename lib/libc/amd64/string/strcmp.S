@@ -160,23 +160,40 @@ ARCHENTRY(strcmp, baseline)
 	pcmpeqb		(%rdi), %xmm0	# where do the chunks match?
 	pmovmskb	%xmm1, %r8d
 	pmovmskb	%xmm0, %r9d
-	add		$16, %rdi
 	test		%r8d, %r8d
 	jnz		.Lnul_found
 	xor		$0xffff, %r9d	# any mismatches?
+	jnz		.Lmismatch
+
+	/* main loop unrolled twice */
+	movdqu		16(%rdi, %rdx, 1), %xmm0 # chunk of 2nd string corresponding to RDI?
+	pxor		%xmm1, %xmm1
+	pcmpeqb		16(%rdi, %rsi, 1), %xmm1 # end of string in RSI?
+	pcmpeqb		16(%rdi), %xmm0	# where do the chunks match?
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	add		$32, %rdi
+	test		%r8d, %r8d
+	jnz		.Lnul_found2
+	xor		$0xffff, %r9d	# any mismatches?
 	jz		0b
+
+	sub		$16, %rdi	# roll back second increment
 
 	/* a mismatch has been found between RDX and RSI */
 .Lmismatch:
 	tzcnt		%r9d, %r9d	# where is the mismatch?
 	add		%rdi, %rdx	# turn RDX from offset to pointer
-	movzbl		-16(%rdx, %r9, 1), %ecx
-	movzbl		-16(%rdi, %r9, 1), %eax
+	movzbl		(%rdx, %r9, 1), %ecx
+	movzbl		(%rdi, %r9, 1), %eax
 	pop		%rdx		# string swap indicator
 	sub		%ecx, %eax	# difference of the mismatching chars
 	xor		%edx, %eax	# negate difference if strings were swapped
 	sub		%edx, %eax
 	ret
+
+.Lnul_found2:
+	sub		$16, %rdi	# roll back second increment
 
 	/* a NUL has been found in RSI */
 .Lnul_found:
@@ -194,8 +211,8 @@ ARCHENTRY(strcmp, baseline)
 	 * Compare (RSI) with the corresponding part
 	 * of the other string until the NUL byte.
 	 */
-	movdqu		-16(%rdi, %rax, 1), %xmm0
-	pcmpeqb		-16(%rdi, %rsi, 1), %xmm0
+	movdqu		(%rdi, %rax, 1), %xmm0
+	pcmpeqb		(%rdi, %rsi, 1), %xmm0
 	add		%rdi, %rsi	# restore RSI pointer
 	add		%rax, %rdi	# advance RDI to correspond to RSI
 	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
@@ -204,8 +221,8 @@ ARCHENTRY(strcmp, baseline)
 	and		%r10d, %eax	# mask of mismatches in string
 	bsf		%eax, %ecx	# location of first mismatch
 	cmovz		%eax, %ecx	# or 0 if there is none
-	movzbl		-16(%rdi, %rcx, 1), %eax
-	movzbl		-16(%rsi, %rcx, 1), %ecx
+	movzbl		(%rdi, %rcx, 1), %eax
+	movzbl		(%rsi, %rcx, 1), %ecx
 	pop		%rdx		# string swap indicator
 	sub		%ecx, %eax
 	xor		%edx, %eax
