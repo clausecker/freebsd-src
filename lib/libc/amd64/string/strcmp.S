@@ -230,12 +230,10 @@ ARCHENTRY(strcmp, baseline)
 	/* a NUL has been found in RSI */
 .Lnul_found:
 	mov		%eax, %ecx
-	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RDX
-	lea		-1(%r8), %r10d
-	xor		$0xffff, %r9d	# turn matches into mismatches
-	xor		%r8d, %r10d	# all bytes in the string (including NUL)
+	mov		%r8d, %r10d
+	shl		%cl, %r8w	# adjust NUL mask to positions in RDI/RDX
+	xor		$0xffff, %r9d	# mask of mismatches
 	or		%r8d, %r9d	# NUL bytes also count as mismatches
-	and		%r10w, %r9w	# was there a mismatch in the string?
 	jnz		.Lmismatch
 
 	/*
@@ -246,13 +244,11 @@ ARCHENTRY(strcmp, baseline)
 	movdqu		(%rdi, %rax, 1), %xmm0
 	pcmpeqb		(%rdi, %rsi, 1), %xmm0
 	add		%rdi, %rsi	# restore RSI pointer
-	add		%rax, %rdi	# advance RDI to correspond to RSI
-	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
-	pmovmskb	%xmm0, %eax	# mask of matches
-	not		%eax		# mask of mismatches
-	and		%r10d, %eax	# mask of mismatches in string
-	bsf		%eax, %ecx	# location of first mismatch
-	cmovz		%eax, %ecx	# or 0 if there is none
+	add		%rax, %rdi	# point RDI to chunk corresponding to (RSI)
+	pmovmskb	%xmm0, %ecx	# mask of matches
+	not		%ecx		# mask of mismatches
+	or		%r10d, %ecx	# mask of mismatches or NUL bytes
+	tzcnt		%ecx, %ecx	# location of first mismatch
 	movzbl		(%rdi, %rcx, 1), %eax
 	movzbl		(%rsi, %rcx, 1), %ecx
 	sub		%ecx, %eax
@@ -335,29 +331,25 @@ ARCHENTRY(strcmp, baseline)
 	/* a NUL has been found in RSI */
 .Lnul_founds:
 	mov		%eax, %ecx
-	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RDX
-	lea		-1(%r8), %r10d
-	xor		$0xffff, %r9d	# turn matches into mismatches
-	xor		%r8d, %r10d	# all bytes in the string (including NUL)
+	mov		%r8d, %r10d
+	shl		%cl, %r8w	# adjust NUL mask to positions in RDI/RDX
+	xor		$0xffff, %r9d	# mask of mismatches
 	or		%r8d, %r9d	# NUL bytes also count as mismatches
-	and		%r10w, %r9w	# was there a mismatch in the string?
 	jnz		.Lmismatchs
 
 	/*
 	 * (RDI) == (RSI) and NUL is past the string.
-	 * Compare (RDI) with the corresponding part
+	 * Compare (RSI) with the corresponding part
 	 * of the other string until the NUL byte.
 	 */
 	movdqu		(%rsi, %rax, 1), %xmm0
 	pcmpeqb		(%rsi, %rdi, 1), %xmm0
-	add		%rsi, %rdi	# restore RSI pointer
-	add		%rax, %rsi	# advance RDI to correspond to RSI
-	shr		%cl, %r10d	# turn RDI/RDX string mask into RSI string mask
-	pmovmskb	%xmm0, %eax	# mask of matches
-	not		%eax		# mask of mismatches
-	and		%r10d, %eax	# mask of mismatches in string
-	bsf		%eax, %ecx	# location of first mismatch
-	cmovz		%eax, %ecx	# or 0 if there is none
+	add		%rsi, %rdi	# restore RDI pointer
+	add		%rax, %rsi	# point RSI to chunk corresponding to (RDI)
+	pmovmskb	%xmm0, %ecx	# mask of matches
+	not		%ecx		# mask of mismatches
+	or		%r10d, %ecx	# mask of mismatches or NUL bytes
+	tzcnt		%ecx, %ecx	# location of first mismatch
 	movzbl		(%rdi, %rcx, 1), %eax
 	movzbl		(%rsi, %rcx, 1), %ecx
 	sub		%ecx, %eax
