@@ -12,6 +12,8 @@
  */
 
 #include <machine/asm.h>
+#include <machine/param.h>
+
 #if 0
 	RCSID("$NetBSD: strcmp.S,v 1.3 2004/07/19 20:04:41 drochner Exp $")
 #endif
@@ -89,45 +91,77 @@ ARCHENTRY(strcmp, scalar)
 ARCHEND(strcmp, scalar)
 
 ARCHENTRY(strcmp, baseline)
-	mov		%esi, %edx
+	/* check if either string crosses a page in the head */
+	lea		15(%rdi), %r8d	# end of head
+	lea		15(%rsi), %r9d
 	mov		%edi, %eax
-	and		$~0xf, %rsi	# align buffers to 16 bytes
-	and		$~0xf, %rdi
-	movdqa		(%rsi), %xmm1
-	movdqa		(%rdi), %xmm0	# load aligned heads
+	mov		%esi, %edx
+	xor		%edi, %r8d	# bits that changed between first and last byte
+	xor		%esi, %r9d
+	and		$~0xf, %rdi	# align heads to 16 bytes
+	and		$~0xf, %rsi
+	or		%r8d, %r9d	# in either RSI or RDI
 	and		$0xf, %eax	# offset from alignment
-	and		$0xf, %edx	# offset from alignment
-	movdqa		%xmm1, -24(%rsp) # stash copies of (RSI) and (RSI)
-	movdqa		%xmm0, -40(%rsp) # for use in runt cases
+	and		$0xf, %edx
+	pxor		%xmm1, %xmm1
+	test		$PAGE_SIZE, %r9d # did the page change?
+	jz		0f		# if not, take fast path
+
+	/* heads may cross page boundary, avoid unmapped loads */
+	movdqa		(%rdi), %xmm0	# load aligned heads
+	movdqa		(%rsi), %xmm2
 	mov		$-1, %r8d
 	mov		$-1, %r9d
-	pxor		%xmm2, %xmm2
-	pxor		%xmm3, %xmm3
 	mov		%eax, %ecx
-	shl		%cl, %r8d	# bits in XMM0 that are part of the string
+	shl		%cl, %r8d	# string head in XMM0
 	mov		%edx, %ecx
-	shl		%cl, %r9d	# bits in XMM1 that are part of the string
-	pcmpeqb		%xmm0, %xmm2	# NUL byte present in first string?
-	pcmpeqb		%xmm1, %xmm3	# NUL byte present in second string?
-	cmp		%edx, %eax	# is (a&0xf) >= (b&0xf)
-	jb		.Lswapped	# if yes, proceed with swapped operands
+	shl		%cl, %r9d	# string head in XMM2
+	movdqa		%xmm0, -40(%rsp) # stash copies of the heads on the stack
+	movdqa		%xmm2, -24(%rsp)
+	pcmpeqb		%xmm1, %xmm0
+	pcmpeqb		%xmm1, %xmm2
+	pmovmskb	%xmm0, %r10d
+	pmovmskb	%xmm2, %r11d
+	test		%r8d, %r10d	# NUL byte present in first string?
+	lea		-40(%rsp), %r8
+	cmovz		%rdi, %r8
+	test		%r9d, %r11d	# NUL byte present in second string?
+	lea		-24(%rsp), %r9
+	cmovz		%rsi, %r9
+	movdqu		(%r8, %rax, 1), %xmm0 # load true (or fake) heads
+	movdqu		(%r9, %rdx, 1), %xmm4
+	jmp		1f
 
-	pmovmskb	%xmm2, %r10d
-	and		%r8d, %r10d	# EOS in first chunk of (RDI)?
-	jnz		.Lrdi_runt
+0:	movdqu		(%rdi, %rax, 1), %xmm0 # load true heads
+	movdqu		(%rsi, %rdx, 1), %xmm4
+1:	pxor		%xmm2, %xmm2
+	pcmpeqb		%xmm0, %xmm2	# NUL byte present?
+	pcmpeqb		%xmm0, %xmm4	# which bytes match?
+	pandn		%xmm4, %xmm2	# match and not NUL byte?
+	pmovmskb	%xmm2, %r9d
+	xor		$0xffff, %r9d	# mismatch or NUL byte?
+	jnz		.Lhead_mismatch
 
-	sub		%rdx, %rax
-	movdqu		(%rdi, %rax, 1), %xmm4	# chunk of first string corresponding to (RSI)
-	pcmpeqb		%xmm1, %xmm4	# where do they match?
-	pandn		%xmm4, %xmm3	# where do they match and are not NUL?
-	pmovmskb	%xmm3, %r10d
-	xor		$0xffff, %r10d	# where do they mismatch or are NUL?
-	and		%r9d, %r10d	# ... within the first chunk of (RSI)?
-	jnz		.Learly_mismatch_or_nul
+	/* load head and second chunk */
+	movdqa		16(%rdi), %xmm2	# load second chunks
+	movdqa		16(%rsi), %xmm3
+	sub		%rdx, %rax	# is a&0xf >= b&0xf?
+	jb		.Lswapped	# if not, proceed with swapped operands
 
+	neg		%rax
+	movdqu		16(%rsi, %rax, 1), %xmm0
 	sub		%rdi, %rsi	# express RSI as distance from RDI
-	mov		%rsi, %rdx	# point RDX to offset in second string
-	sub		%rax, %rdx	# corresponding to RDI in first string
+	lea		(%rsi, %rax, 1), %rdx # point RDX to offset in second string
+	neg		%rax
+	pcmpeqb		%xmm3, %xmm1	# ... corresponding to RDI
+	pcmpeqb		%xmm2, %xmm0
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	add		$16, %rdi
+	test		%r8d, %r8d
+	jnz		.Lnul_found
+	xor		$0xffff, %r9d
+	jnz		.Lmismatch
 	add		$16, %rdi	# advance aligned pointers
 
 	/*
@@ -180,6 +214,16 @@ ARCHENTRY(strcmp, baseline)
 	sub		%ecx, %eax	# difference of the mismatching chars
 	ret
 
+	/* mismatch in true heads */
+.Lhead_mismatch:
+	tzcnt		%r9d, %r9d	# where is the mismatch?
+	add		%rax, %rdi	# return to true heads
+	add		%rdx, %rsi
+	movzbl		(%rdi, %r9, 1), %eax # mismatching characters
+	movzbl		(%rsi, %r9, 1), %ecx
+	sub		%ecx, %eax
+	ret
+
 .Lnul_found2:
 	sub		$16, %rdi	# roll back second increment
 
@@ -215,63 +259,25 @@ ARCHENTRY(strcmp, baseline)
 	ret
 
 	/*
-	 * RDI has an early NUL byte.  Due to the invariant established
-	 * earlier, this means that either the other string must end
-	 * before a 16 byte boundary, too, or the two strings have a
-	 * mismatch before said boundary.  So it is sufficient to just
-	 * compare these two prefixes.
-	 */
-.Lrdi_runt:
-	sub		%rax, %rdx		# adjustment from RSI to RDI alignment
-	movdqu		-24(%rsp, %rdx, 1), %xmm1 # load RDI-aligned copy of RSI string
-	lea		-1(%r10), %r11d
-	xor		%r10d, %r11d		# characters not after end of string in RDI
-	and		%r8d, %r11d		# characters in string in RDI
-	pcmpeqb		%xmm1, %xmm0		# are the two strings identical?
-	pmovmskb	%xmm0, %eax		# let's find out
-	lea		-24(%rsp, %rdx, 1), %rsi
-	not		%eax			# mismatches between the chunks
-	and		%r11d, %eax		# mismatches between the string
-	cmovz		%r11d, %eax		# or all chars in the string if no mismatch
-	tzcnt		%eax, %eax		# location of first mismatch (or first char if none)
-	movzbl		(%rsi, %rax, 1), %ecx	# characters at location of mismatch
-	movzbl		(%rdi, %rax, 1), %eax
-	sub		%ecx, %eax
-	ret	
-
-	/* RSI and RDI mismatch or end in the head */
-.Learly_mismatch_or_nul:
-	tzcnt		%r10d, %r10d		# offset of first mismatch or NUL from RDI
-	add		%rax, %rdi		# address of 2nd string chunk corresponding to RDI
-	movzbl		(%rsi, %r10, 1), %ecx
-	movzbl		(%rdi, %r10, 1), %eax	# characters at location of mismatch
-	sub		%ecx, %eax
-	ret
-
-	/*
 	 * If (a&0xf) < (b&0xf), we do the same thing but with swapped
 	 * operands.  I found that this performs slightly better than
 	 * using conditional moves to do the swap branchless.
 	 */
 .Lswapped:
-	pmovmskb	%xmm3, %r10d
-	and		%r9d, %r10d	# EOS in first chunk of (RSI)?
-	jnz		.Lrsi_runt
-
-	sub		%rdx, %rax
-	neg		%rax
-	movdqu		(%rsi, %rax, 1), %xmm4	# chunk of first string corresponding to (RDI)
-	pcmpeqb		%xmm0, %xmm4	# where do they match?
-	pandn		%xmm4, %xmm2	# where do they match and are not NUL?
-	pmovmskb	%xmm2, %r10d
-	xor		$0xffff, %r10d	# where do they mismatch or are NUL?
-	and		%r8d, %r10d	# ... within the first chunk of (RDI)?
-	jnz		.Learly_mismatch_or_nuls
-
+	movdqu		16(%rdi, %rax, 1), %xmm0
 	sub		%rsi, %rdi	# express RDI as distance from RSI
-	mov		%rdi, %rdx	# point RDX to offset in second string
-	sub		%rax, %rdx	# corresponding to RSI in first string
+	lea		(%rdi, %rax, 1), %rdx # point RDX to offset in RDI corresponding to RSI
+	neg		%rax		# make difference positive
+	pcmpeqb		%xmm2, %xmm1
+	pcmpeqb		%xmm3, %xmm0
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
 	add		$16, %rsi	# advance aligned pointers
+	test		%r8d, %r8d
+	jnz		.Lnul_founds
+	xor		$0xffff, %r9d
+	jnz		.Lmismatchs
+	add		$16, %rsi
 
 	/*
 	 * During the main loop, the layout of the two strings is something like:
@@ -354,40 +360,6 @@ ARCHENTRY(strcmp, baseline)
 	cmovz		%eax, %ecx	# or 0 if there is none
 	movzbl		(%rdi, %rcx, 1), %eax
 	movzbl		(%rsi, %rcx, 1), %ecx
-	sub		%ecx, %eax
-	ret
-
-	/*
-	 * RDI has an early NUL byte.  Due to the invariant established
-	 * earlier, this means that either the other string must end
-	 * before a 16 byte boundary, too, or the two strings have a
-	 * mismatch before said boundary.  So it is sufficient to just
-	 * compare these two prefixes.
-	 */
-.Lrsi_runt:
-	sub		%rdx, %rax		# adjustment from RDI to RSI alignment
-	movdqu		-40(%rsp, %rax, 1), %xmm0 # load RSI-aligned copy of RDI string
-	lea		-1(%r10), %r11d
-	xor		%r10d, %r11d		# characters not after end of string in RDI
-	and		%r9d, %r11d		# characters in string in RDI
-	pcmpeqb		%xmm1, %xmm0		# are the two strings identical?
-	pmovmskb	%xmm0, %edx		# let's find out
-	lea		-40(%rsp, %rax, 1), %rdi
-	not		%edx			# mismatches between the chunks
-	and		%r11d, %edx		# mismatches between the string
-	cmovz		%r11d, %edx		# or all chars in the string if no mismatch
-	tzcnt		%edx, %edx		# location of first mismatch (or first char if none)
-	movzbl		(%rdi, %rdx, 1), %eax	# characters at location of mismatch
-	movzbl		(%rsi, %rdx, 1), %ecx
-	sub		%ecx, %eax
-	ret	
-
-	/* RSI and RDI mismatch or end in the head */
-.Learly_mismatch_or_nuls:
-	tzcnt		%r10d, %r10d		# offset of first mismatch or NUL from RDI
-	add		%rax, %rsi		# address of 2nd string chunk corresponding to RDI
-	movzbl		(%rsi, %r10, 1), %ecx
-	movzbl		(%rdi, %r10, 1), %eax	# characters at location of mismatch
 	sub		%ecx, %eax
 	ret
 ARCHEND(strcmp, baseline)
