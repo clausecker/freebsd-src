@@ -42,8 +42,8 @@ ENDARCHFUNCS(strncmp)
  */
 ARCHENTRY(strncmp, scalar)
 	xor	%eax, %eax
-	sub	$4, %rdx	# 8 chars left to compare?
-	jb	.Ltail
+	sub	$4, %rdx	# 4 chars left to compare?
+	jbe	.Ltail
 
 	ALIGN_TEXT
 0:	movzbl	(%rdi), %ecx
@@ -73,10 +73,11 @@ ARCHENTRY(strncmp, scalar)
 	add	$4, %rdi	# advance to next iteration
 	add	$4, %rsi
 	sub	$4, %rdx
-	jae	0b
+	ja	0b
 
 	/* end of string within the next 4 characters */
-.Ltail:	jz	.Leq		# end of string reached immediately?
+.Ltail:	cmp	$-4, %edx	# end of string reached immediately?
+	jz	.Leq
 	movzbl	(%rdi), %ecx
 	test	%ecx, %ecx
 	jz	.L0
