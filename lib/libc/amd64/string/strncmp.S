@@ -35,6 +35,7 @@
 
 ARCHFUNCS(strncmp)
 	ARCHFUNC(strncmp, scalar)
+	ARCHFUNC(strncmp, baseline)
 ENDARCHFUNCS(strncmp)
 
 /*
@@ -43,7 +44,7 @@ ENDARCHFUNCS(strncmp)
 ARCHENTRY(strncmp, scalar)
 	xor	%eax, %eax
 	sub	$4, %rdx	# 4 chars left to compare?
-	jbe	.Ltail
+	jbe	1f
 
 	ALIGN_TEXT
 0:	movzbl	(%rdi), %ecx
@@ -76,7 +77,7 @@ ARCHENTRY(strncmp, scalar)
 	ja	0b
 
 	/* end of string within the next 4 characters */
-.Ltail:	cmp	$-4, %edx	# end of string reached immediately?
+1:	cmp	$-4, %edx	# end of string reached immediately?
 	jz	.Leq
 	movzbl	(%rdi), %ecx
 	test	%ecx, %ecx
@@ -245,8 +246,8 @@ ARCHENTRY(strncmp, baseline)
 	sub		%rdi, %rsi	# express RSI as distance from RDI
 	lea		(%rsi, %rax, 1), %rbx # point RBX to offset in second string
 	neg		%rax		# ... corresponding to RDI
-	pcmpeqb		%xmm3, %xmm1	# mismatch between chunks?
-	pcmpeqb		%xmm2, %xmm0	# NUL present?
+	pcmpeqb		%xmm3, %xmm1	# NUL present?
+	pcmpeqb		%xmm2, %xmm0	# Mismatch between chunks?
 	pmovmskb	%xmm1, %r8d
 	pmovmskb	%xmm0, %r9d
 	mov		$16, %ecx
@@ -277,7 +278,7 @@ ARCHENTRY(strncmp, baseline)
 	 * and 2 at this point, this also ensures that RDI has not ended yet.
 	 */
 	ALIGN_TEXT
-0:	movdqu		(%rdi, %rbx, 1), %xmm0 # chunk of 2nd string correspodning to RDI
+0:	movdqu		(%rdi, %rbx, 1), %xmm0 # chunk of 2nd string corresponding to RDI
 	pxor		%xmm1, %xmm1
 	pcmpeqb		(%rdi, %rsi, 1), %xmm1 # end of string in RSI?
 	pcmpeqb		(%rdi), %xmm0	# where do the chunks match?
@@ -304,7 +305,7 @@ ARCHENTRY(strncmp, baseline)
 	jae		0b
 
 	/* end of buffer will occur in next 32 bytes */
-.Ltail:	movdqu		(%rdi, %rbx, 1), %xmm0 # chunk of 2nd string correspodning to RDI
+.Ltail:	movdqu		(%rdi, %rbx, 1), %xmm0 # chunk of 2nd string corresponding to RDI
 	pxor		%xmm1, %xmm1
 	pcmpeqb		(%rdi, %rsi, 1), %xmm1 # end of string in RSI?
 	pcmpeqb		(%rdi), %xmm0	# where do the chunks match?
@@ -333,7 +334,7 @@ ARCHENTRY(strncmp, baseline)
 .Lnul_found:
 	mov		%eax, %ecx
 	mov		%r8d, %r10d
-	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RDX
+	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RBX
 	xor		$0xffff, %r9d	# mask of mismatches
 	or		%r8w, %r9w	# NUL bytes als count as mismatches
 	jnz		.Lmismatch
@@ -351,8 +352,8 @@ ARCHENTRY(strncmp, baseline)
 	not		%ecx		# mask of mismatches
 	or		%r10d, %ecx	# mask of mismatches or NUL bytes
 	tzcnt		%ecx, %ecx	# location of first mismatch
-	movzbl	(%rdi, %rcx, 1), %eax
-	movzbl	(%rsi, %rcx, 1), %ecx
+	movzbl		(%rdi, %rcx, 1), %eax
+	movzbl		(%rsi, %rcx, 1), %ecx
 	sub		%ecx, %eax
 	pop		%rbx
 	ret
@@ -363,7 +364,7 @@ ARCHENTRY(strncmp, baseline)
 	/* a mismatch has been found between RBX and RSI */
 .Lmismatch:
 	tzcnt		%r9d, %r9d	# where is the mismatch?
-	add		%rdi, %rbx	# turn RBX from offset to pointer
+	add		%rdi, %rbx	# turn RBX from offset into pointer
 	movzbl		(%rbx, %r9, 1), %ecx
 	movzbl		(%rdi, %r9, 1), %eax
 	sub		%ecx, %eax
@@ -372,7 +373,116 @@ ARCHENTRY(strncmp, baseline)
 
 	/* rax < 0 */
 .Lswapped:
-	...
+	sub		$16, %rdx	# RDX points to buffer end in RDI
+	movdqu		16(%rdi, %rax, 1), %xmm0
+	sub		%rsi, %rdi	# express RDI as distance from RDI
+	lea		(%rdi, %rax, 1), %rbx # point RBX to offset in first string
+	neg		%rax		# ... corresponding to RSI
+	pcmpeqb		%xmm2, %xmm1	# NUL present?
+	pcmpeqb		%xmm3, %xmm0	# mismatch between chunks?
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	mov		$16, %ecx
+	cmp		%rcx, %rdx	# does the buffer end within (RSI,RDI,1)?
+	cmovb		%edx, %ecx	# ECX = min(16, RDX)
+	add		$16, %rsi
+	bts		%ecx, %r8d	# mark end-of-buffer as if there was a NUL byte
+	test		%r8w, %r8w	# NUL or end of buffer found?
+	jnz		.Lnul_founds
+	xor		$0xffff, %r9d
+	jnz		.Lmismatchs
+	add		$16, %rsi	# advance aligned pointers
+	sub		$48, %rdx	# end of buffer within first main loop iteration?
+	jb		.Ltails		# if yes, process tail
+
+	ALIGN_TEXT
+0:	movdqu		(%rsi, %rbx, 1), %xmm0 # chunk of 1st string corresponding to RSI
+	pxor		%xmm1, %xmm1
+	pcmpeqb		(%rsi, %rdi, 1), %xmm1 # end of string in RDI?
+	pcmpeqb		(%rsi), %xmm0	# where do the chunks match?
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	test		%r8d, %r8d
+	jnz		.Lnul_founds
+	xor		$0xffff, %r9d	# any mismatches?
+	jnz		.Lmismatchs
+
+	/* main loop unrolled twice */
+	movdqu		16(%rsi, %rbx, 1), %xmm0
+	pxor		%xmm1, %xmm1
+	pcmpeqb		16(%rsi, %rdi, 1), %xmm1
+	pcmpeqb		16(%rsi), %xmm0
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	add		$32, %rsi
+	test		%r8d, %r8d
+	jnz		.Lnul_found2s
+	xor		$0xffff, %r9d
+	jnz		.Lmismatch2s
+	sub		$32, %rdx	# end of buffer within next iteration?
+	jae		0b
+
+	/* end of buffer will occur in next 32 bytes */
+.Ltails:
+	movdqu		(%rsi, %rbx, 1), %xmm0 # chunk of 1st string corresponding to RSI
+	pxor		%xmm1, %xmm1
+	pcmpeqb		(%rsi, %rdi, 1), %xmm1 # end of string in RDI?
+	pcmpeqb		(%rsi), %xmm0	# where do the chunks match?
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	bts		%edx, %r8d	# indicate NUL byte at laste byte in buffer
+	test		%r8w, %r8w	# NUL byte in first chunk?
+	jnz		.Lnul_founds
+	xor		$0xffff, %r9d	# any mismatches?
+	jnz		.Lmismatchs
+
+	/* main loop unrolled twice */
+	movdqu		16(%rsi, %rbx, 1), %xmm0
+	pxor		%xmm1, %xmm1
+	pcmpeqb		16(%rsi, %rdi, 1), %xmm1
+	pcmpeqb		16(%rsi), %xmm0
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	sub		$16, %edx	# take first half into account
+	bts		%edx, %r8d	# indicate NUL byte at laste byte in buffer
+	add		$32, %rsi
+
+.Lnul_found2s:
+	sub		$16, %rsi
+
+.Lnul_founds:
+	mov		%eax, %ecx
+	mov		%r8d, %r10d
+	shl		%cl, %r8d	# adjust NUL mask to positions in RSI/RBX
+	xor		$0xffff, %r9d	# mask of mismatches
+	or		%r8w, %r9w	# NUL bytes also count as mismatches
+	jnz		.Lmismatchs
+
+	movdqu		(%rsi, %rax, 1), %xmm0
+	pcmpeqb		(%rsi, %rdi, 1), %xmm0
+	add		%rsi, %rdi	# restore RDI pointer
+	add		%rax, %rsi	# point RSI to chunk corresponding to (RDI)
+	pmovmskb	%xmm0, %ecx	# mask of matches
+	not		%ecx		# mask of mismatches
+	or		%r10d, %ecx	# mask of mismatches or NUL bytes
+	tzcnt		%ecx, %ecx	# location of first mismatch
+	movzbl		(%rdi, %rcx, 1), %eax
+	movzbl		(%rsi, %rcx, 1), %ecx
+	sub		%ecx, %eax
+	pop		%rbx
+	ret
+
+.Lmismatch2s:
+	sub		$16, %rsi
+
+.Lmismatchs:
+	tzcnt		%r9d, %r9d	# where is the mismatch?
+	add		%rsi, %rbx	# turn RBX from offset into pointer
+	movzbl		(%rbx, %r9, 1), %eax
+	movzbl		(%rsi, %r9, 1), %ecx
+	sub		%ecx, %eax
+	pop		%rbx
+	ret
 ARCHEND(strncmp, baseline)
 	
 	.section .note.GNU-stack,"",%progbits
