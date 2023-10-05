@@ -304,19 +304,71 @@ ARCHENTRY(strncmp, baseline)
 	jae		0b
 
 	/* end of buffer will occur in next 32 bytes */
-.Ltail:	...
+.Ltail:	movdqu		(%rdi, %rbx, 1), %xmm0 # chunk of 2nd string correspodning to RDI
+	pxor		%xmm1, %xmm1
+	pcmpeqb		(%rdi, %rsi, 1), %xmm1 # end of string in RSI?
+	pcmpeqb		(%rdi), %xmm0	# where do the chunks match?
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	bts		%edx, %r8d	# indicate NUL byte at last byte in buffer
+	test		%r8w, %r8w	# NUL byte in first chunk?
+	jnz		.Lnul_found
+	xor		$0xffff, %r9d	# any mismatches?
+	jnz		.Lmismatch
 
-.Lmismatch2:
-	sub		$16, %rdi
-
-.Lmismatch:
-	...
+	/* main loop unrolled twice */
+	movdqu		16(%rdi, %rbx, 1), %xmm0
+	pxor		%xmm1, %xmm1
+	pcmpeqb		16(%rdi, %rsi, 1), %xmm1
+	pcmpeqb		16(%rdi), %xmm0
+	pmovmskb	%xmm1, %r8d
+	pmovmskb	%xmm0, %r9d
+	sub		$16, %edx	# take first half into account
+	bts		%edx, %r8d	# indicate NUL byte at last byte in buffer
+	add		$32, %rdi
 
 .Lnul_found2:
 	sub		$16, %rdi
 
 .Lnul_found:
-	...
+	mov		%eax, %ecx
+	mov		%r8d, %r10d
+	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RDX
+	xor		$0xffff, %r9d	# mask of mismatches
+	or		%r8w, %r9w	# NUL bytes als count as mismatches
+	jnz		.Lmismatch
+
+	/*
+	 * (RDI) == (RSI) and NUL is past the string.
+	 * compare (RSI) with the corresponding part
+	 * of the other string until the NUL byte.
+	 */
+	movdqu		(%rdi, %rax, 1), %xmm0
+	pcmpeqb		(%rdi, %rsi, 1), %xmm0
+	add		%rdi, %rsi	# restore RSI pointer
+	add		%rax, %rdi	# point RDI to chunk corresponding to (RSI)
+	pmovmskb	%xmm0, %ecx	# mask of matches
+	not		%ecx		# mask of mismatches
+	or		%r10d, %ecx	# mask of mismatches or NUL bytes
+	tzcnt		%ecx, %ecx	# location of first mismatch
+	movzbl	(%rdi, %rcx, 1), %eax
+	movzbl	(%rsi, %rcx, 1), %ecx
+	sub		%ecx, %eax
+	pop		%rbx
+	ret
+
+.Lmismatch2:
+	sub		$16, %rdi
+
+	/* a mismatch has been found between RBX and RSI */
+.Lmismatch:
+	tzcnt		%r9d, %r9d	# where is the mismatch?
+	add		%rdi, %rbx	# turn RBX from offset to pointer
+	movzbl		(%rbx, %r9, 1), %ecx
+	movzbl		(%rdi, %r9, 1), %eax
+	sub		%ecx, %eax
+	pop		%rbx
+	ret
 
 	/* rax < 0 */
 .Lswapped:
