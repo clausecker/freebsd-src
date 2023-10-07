@@ -181,7 +181,7 @@ ARCHENTRY(strncmp, baseline)
 	/* load head and second chunk */
 	movdqa		16(%rdi), %xmm2	# load second chunks
 	movdqa		16(%rsi), %xmm3
-	sub		%rax, %rdx	# account for length of RDI chunk
+	lea		-16(%rdx, %rax, 1), %rdx # account for length of RDI chunk
 	sub		%rbx, %rax	# is a&0xf >= b&0xf?
 	jb		.Lswapped	# if not, proceed with swapped operands
 	jmp		.Lnormal
@@ -240,7 +240,7 @@ ARCHENTRY(strncmp, baseline)
 
 	/* rax >= 0 */
 .Lnormal:
-	lea		-16(%rdx, %rax, 1), %rdx # RDX points to buffer end in RSI
+	sub		%rax, %rdx	# RDX points to buffer end in RSI
 	neg		%rax
 	movdqu		16(%rsi, %rax, 1), %xmm0
 	sub		%rdi, %rsi	# express RSI as distance from RDI
@@ -373,7 +373,6 @@ ARCHENTRY(strncmp, baseline)
 
 	/* rax < 0 */
 .Lswapped:
-	sub		$16, %rdx	# RDX points to buffer end in RDI
 	movdqu		16(%rdi, %rax, 1), %xmm0
 	sub		%rsi, %rdi	# express RDI as distance from RDI
 	lea		(%rdi, %rax, 1), %rbx # point RBX to offset in first string
