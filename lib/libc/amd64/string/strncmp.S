@@ -181,7 +181,7 @@ ARCHENTRY(strncmp, baseline)
 	/* load head and second chunk */
 	movdqa		16(%rdi), %xmm2	# load second chunks
 	movdqa		16(%rsi), %xmm3
-	lea		-16(%rdx, %rax, 1), %rdx # account for length of RDI chunk
+	lea		-16(%rdx, %rbx, 1), %rdx # account for length of RSI chunk
 	sub		%rbx, %rax	# is a&0xf >= b&0xf?
 	jb		.Lswapped	# if not, proceed with swapped operands
 	jmp		.Lnormal
@@ -240,7 +240,6 @@ ARCHENTRY(strncmp, baseline)
 
 	/* rax >= 0 */
 .Lnormal:
-	sub		%rax, %rdx	# RDX points to buffer end in RSI
 	neg		%rax
 	movdqu		16(%rsi, %rax, 1), %xmm0
 	sub		%rdi, %rsi	# express RSI as distance from RDI
@@ -253,13 +252,12 @@ ARCHENTRY(strncmp, baseline)
 	mov		$16, %ecx
 	cmp		%rcx, %rdx	# does the buffer end within (RDI,RSI,1)?
 	cmovb		%edx, %ecx	# ECX = min(16, RDX)
-	add		$16, %rdi
+	add		$32, %rdi	# advance to next iteration
 	bts		%ecx, %r8d	# mark end-of-buffer as if there was a NUL byte
 	test		%r8w, %r8w	# NUL or end of buffer found?
-	jnz		.Lnul_found
+	jnz		.Lnul_found2
 	xor		$0xffff, %r9d
-	jnz		.Lmismatch
-	add		$16, %rdi	# advance aligned pointers
+	jnz		.Lmismatch2
 	sub		$48, %rdx	# end of buffer within first main loop iteration?
 	jb		.Ltail		# if yes, process tail
 
@@ -376,21 +374,21 @@ ARCHENTRY(strncmp, baseline)
 	movdqu		16(%rdi, %rax, 1), %xmm0
 	sub		%rsi, %rdi	# express RDI as distance from RDI
 	lea		(%rdi, %rax, 1), %rbx # point RBX to offset in first string
-	neg		%rax		# ... corresponding to RSI
 	pcmpeqb		%xmm2, %xmm1	# NUL present?
 	pcmpeqb		%xmm3, %xmm0	# mismatch between chunks?
 	pmovmskb	%xmm1, %r8d
 	pmovmskb	%xmm0, %r9d
+	add		%rax, %rdx	# RDX points to buffer end in RSI
+	neg		%rax		# ... corresponding to RSI
 	mov		$16, %ecx
 	cmp		%rcx, %rdx	# does the buffer end within (RSI,RDI,1)?
 	cmovb		%edx, %ecx	# ECX = min(16, RDX)
-	add		$16, %rsi
+	add		$32, %rsi
 	bts		%ecx, %r8d	# mark end-of-buffer as if there was a NUL byte
 	test		%r8w, %r8w	# NUL or end of buffer found?
-	jnz		.Lnul_founds
+	jnz		.Lnul_found2s
 	xor		$0xffff, %r9d
-	jnz		.Lmismatchs
-	add		$16, %rsi	# advance aligned pointers
+	jnz		.Lmismatch2s
 	sub		$48, %rdx	# end of buffer within first main loop iteration?
 	jb		.Ltails		# if yes, process tail
 
