@@ -225,9 +225,10 @@ ARCHENTRY(strncmp, baseline)
 	pandn		%xmm4, %xmm2	# match and not NUL byte?
 	pmovmskb	%xmm2, %r9d
 	btr		%edx, %r9d	# induce mismatch in last byte of buffer
-	xor		$0xffff, %r9d	# mismatch or NUL byte?
+	not		%r9d		# mismatch or NUL byte?
 
 	/* mismatch in true heads */
+	ALIGN_TEXT
 .Lhead_mismatch:
 	tzcnt		%r9d, %r9d	# where is the mismatch?
 	add		%rax, %rdi	# return to true heads
@@ -239,6 +240,7 @@ ARCHENTRY(strncmp, baseline)
 	ret
 
 	/* rax >= 0 */
+	ALIGN_TEXT
 .Lnormal:
 	neg		%rax
 	movdqu		16(%rsi, %rax, 1), %xmm0
@@ -333,7 +335,7 @@ ARCHENTRY(strncmp, baseline)
 	mov		%eax, %ecx
 	mov		%r8d, %r10d
 	shl		%cl, %r8d	# adjust NUL mask to positions in RDI/RBX
-	xor		$0xffff, %r9d	# mask of mismatches
+	not		%r9d		# mask of mismatches
 	or		%r8w, %r9w	# NUL bytes als count as mismatches
 	jnz		.Lmismatch
 
@@ -370,6 +372,7 @@ ARCHENTRY(strncmp, baseline)
 	ret
 
 	/* rax < 0 */
+	ALIGN_TEXT
 .Lswapped:
 	movdqu		16(%rdi, %rax, 1), %xmm0
 	sub		%rsi, %rdi	# express RDI as distance from RDI
@@ -451,7 +454,7 @@ ARCHENTRY(strncmp, baseline)
 	mov		%eax, %ecx
 	mov		%r8d, %r10d
 	shl		%cl, %r8d	# adjust NUL mask to positions in RSI/RBX
-	xor		$0xffff, %r9d	# mask of mismatches
+	not		%r9d		# mask of mismatches
 	or		%r8w, %r9w	# NUL bytes also count as mismatches
 	jnz		.Lmismatchs
 
