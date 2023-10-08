@@ -484,5 +484,5 @@ ARCHENTRY(strncmp, baseline)
 	pop		%rbx
 	ret
 ARCHEND(strncmp, baseline)
-	
+
 	.section .note.GNU-stack,"",%progbits
