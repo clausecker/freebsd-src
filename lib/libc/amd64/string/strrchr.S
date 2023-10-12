@@ -200,8 +200,8 @@ ARCHENTRY(strrchr, baseline)
 	and		%eax, %ecx		# c found in the tail?
 	cmovnz		%rdi, %r8
 	cmovnz		%ecx, %esi
-	bsr		%esi, %esi		# last location of c in (R8)
-	lea		(%r8, %rsi, 1), %rax	# pointer to match
+	bsr		%esi, %eax		# last location of c in (R8)
+	lea		(%r8, %rax, 1), %rax	# pointer to match
 	cmovz		%rsi, %rax		# or NULL if no match
 	ret
 ARCHEND(strrchr, baseline)
