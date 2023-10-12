@@ -6,10 +6,14 @@
  */
 
 #include <atf-c.h>
-#include <string.h>
-#include <unistd.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <string.h>
+#include <unistd.h>
+
+char * (*volatile strrchr_fn)(const char *, int);
 
 ATF_TC(strrchr_basic);
 ATF_TC_HEAD(strrchr_basic, tc)
@@ -19,10 +23,8 @@ ATF_TC_HEAD(strrchr_basic, tc)
 
 ATF_TC_BODY(strrchr_basic, tc)
 {
-	/* try to trick the compiler */
-	char * (*f)(const char *, int) = strrchr;
-
 	unsigned int a, t;
+	void *dl_handle;
 	char *off, *off2;
 	char buf[32];
 
@@ -216,11 +218,16 @@ ATF_TC_BODY(strrchr_basic, tc)
 		{ "abcdefgh/abcdefgh/", 1, 8, 17 },
 	};
 
+	dl_handle = dlopen(NULL, RTLD_LAZY);
+	strrchr_fn = dlsym(dl_handle, "test_strrchr");
+	if (!strrchr_fn)
+		strrchr_fn = strrchr;
+
 	for (a = 0; a < sizeof(long); ++a) {
 		for (t = 0; t < (sizeof(tab) / sizeof(tab[0])); ++t) {
 			strcpy(&buf[a], tab[t].val);
 
-			off = f(&buf[a], '/');
+			off = strrchr_fn(&buf[a], '/');
 			if (tab[t].match == 0) {
 				if (off != 0) {
 					fprintf(stderr, "a %d, t %d\n", a, t);
@@ -239,7 +246,7 @@ ATF_TC_BODY(strrchr_basic, tc)
 			}
 
 			/* check zero extension of char arg */
-			off2 = f(&buf[a], 0xffffff00 | '/');
+			off2 = strrchr_fn(&buf[a], 0xffffff00 | '/');
 			if (off != off2) {
 				fprintf(stderr, "a %d, t %d\n", a, t);
 				atf_tc_fail("zero extension of char arg fails");
