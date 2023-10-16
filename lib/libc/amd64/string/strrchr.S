@@ -149,9 +149,10 @@ ARCHENTRY(strrchr, baseline)
 	punpcklbw	%xmm0, %xmm0		# c -> cc
 	shl		%cl, %edx		# bits corresponding to bytes in the string
 	punpcklwd	%xmm0, %xmm0		# cc -> cccc
-	mov		%rdi, %r8		# address of xmmword with latest match
-	xor		%esi, %esi		# location of latest match (possibly in head)
-	add		$16, %rdi
+	xor		%r8, %r8		# address of latest match
+	mov		$1, %esi		# bit mask of latest match
+	mov		%rdi, %r9		# candidate location for next match
+	add		$16, %rdi		# advance to next chunk
 
 	/* check for match in head */
 	pcmpeqb		%xmm1, %xmm2		# NUL byte present?
@@ -163,15 +164,12 @@ ARCHENTRY(strrchr, baseline)
 	and		%edx, %eax		# NUL present in the string?
 	jnz		.Lend2
 
-	mov		%ecx, %esi		# remember head as location of latest match
-	jmp		.Loop
-
 	/* main loop unrolled twice */
 	ALIGN_TEXT
-0:	test		%ecx, %ecx
+0:	movdqa		(%rdi), %xmm1
+	test		%ecx, %ecx		# was there a match in the last iter.?
 	cmovnz		%r9, %r8		# remember match if any
 	cmovnz		%ecx, %esi
-.Loop:	movdqa		(%rdi), %xmm1
 	pxor		%xmm2, %xmm2
 	pcmpeqb		%xmm1, %xmm2		# NUL byte present?
 	pcmpeqb		%xmm0, %xmm1		# c present?
@@ -179,30 +177,30 @@ ARCHENTRY(strrchr, baseline)
 	pmovmskb	%xmm1, %ecx
 	test		%eax, %eax		# end of string in first half?
 	jnz		.Lend
-	test		%ecx, %ecx
-	cmovnz		%rdi, %r8		# remember match if any
-	cmovnz		%ecx, %esi
 
 	movdqa		16(%rdi), %xmm1
-	add		$32, %rdi
-	lea		-16(%rdi), %r9
+	test		%ecx, %ecx		# was there a match in the last iter.?
+	cmovnz		%rdi, %r8		# remember match if any
+	cmovnz		%ecx, %esi
 	pxor		%xmm2, %xmm2
 	pcmpeqb		%xmm1, %xmm2		# NUL byte present?
 	pcmpeqb		%xmm0, %xmm1		# c present?
 	pmovmskb	%xmm2, %eax
 	pmovmskb	%xmm1, %ecx
+	lea		16(%rdi), %r9
+	add		$32, %rdi
 	test		%eax, %eax		# end of string in second half?
 	jz		0b
 
+	ALIGN_TEXT
 .Lend2:	sub		$16, %rdi
 .Lend:	lea 		-1(%rax), %edx
 	xor		%edx, %eax		# mask of bytes in the string
 	and		%eax, %ecx		# c found in the tail?
 	cmovnz		%rdi, %r8
 	cmovnz		%ecx, %esi
-	bsr		%esi, %eax		# last location of c in (R8)
-	lea		(%r8, %rax, 1), %rax	# pointer to match
-	cmovz		%rsi, %rax		# or NULL if no match
+	bsr		%esi, %esi		# last location of c in (R8)
+	lea		(%r8, %rsi, 1), %rax	# pointer to match
 	ret
 ARCHEND(strrchr, baseline)
 	.section .note.GNU-stack,"",%progbits
