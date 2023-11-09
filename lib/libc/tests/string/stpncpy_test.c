@@ -32,11 +32,14 @@
 #include <sys/param.h>
 #include <sys/mman.h>
 #include <assert.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <atf-c.h>
+
+static char *(*stpncpy_fn)(char *restrict, const char *restrict, size_t);
 
 static char *
 makebuf(size_t len, int guard_at_end)
@@ -74,7 +77,7 @@ test_stpncpy(const char *s)
 				dst = makebuf(bufsize, j);
 				memset(dst, 'X', bufsize);
 				len = (bufsize < size) ? bufsize : size - 1;
-				assert(stpncpy(dst, src, bufsize) == dst+len);
+				assert(stpncpy_fn(dst, src, bufsize) == dst+len);
 				assert(memcmp(src, dst, len) == 0);
 				for (x = len; x < bufsize; x++)
 					assert(dst[x] == '\0');
@@ -106,7 +109,7 @@ test_sentinel(char *dest, char *src, size_t destlen, size_t srclen)
 	dest[destlen] = '}';
 
 	wantres = dest + (srclen > destlen ? destlen : srclen);
-	res = stpncpy(dest, src, destlen);
+	res = stpncpy_fn(dest, src, destlen);
 
 	if (dest[-1] != '{')
 		fail = "start sentinel overwritten";
@@ -123,7 +126,7 @@ test_sentinel(char *dest, char *src, size_t destlen, size_t srclen)
 		}
 
 	if (fail)
-		atf_tc_fail("test case failed: %s\n"
+		atf_tc_fail("%s\n"
 		    "strncpy(%p \"%s\", %p \"%s\", %zu) = %p (want %p)\n",
 		    fail, dest, dest, src, src, destlen, res, wantres);
 }
@@ -167,6 +170,12 @@ ATF_TC_BODY(alignments, tc)
 
 ATF_TP_ADD_TCS(tp)
 {
+	void *dl_handle;
+
+	dl_handle = dlopen(NULL, RTLD_LAZY);
+	stpncpy_fn = dlsym(dl_handle, "test_stpncpy");
+	if (stpncpy_fn == NULL)
+		stpncpy_fn = stpncpy;
 
 	ATF_TP_ADD_TC(tp, nul);
 	ATF_TP_ADD_TC(tp, foo);
