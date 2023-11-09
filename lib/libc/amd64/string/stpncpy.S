@@ -88,10 +88,22 @@ ARCHENTRY(__stpncpy, baseline)
 	add		$16, %rdi
 	sub		$32, %r10
 
+	/* main loop unrolled twice */
 	ALIGN_TEXT
 0:	movdqa		(%rsi), %xmm0
-	add		$16, %rdi		# advance pointers to next chunk
-	add		$16, %rsi
+	pxor		%xmm1, %xmm1
+	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %r8d
+	test		%r8d, %r8d
+	jnz		3f
+
+	movdqu		%xmm0, (%rdi)
+	sub		$16, %r10		# another full chunk left?
+	jb		1f
+
+	movdqa		16(%rsi), %xmm0
+	add		$32, %rdi		# advance pointers to next chunk
+	add		$32, %rsi
 	pxor		%xmm1, %xmm1
 	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
 	pmovmskb	%xmm1, %r8d
@@ -102,10 +114,13 @@ ARCHENTRY(__stpncpy, baseline)
 	sub		$16, %r10		# another full chunk left?
 	jae		0b
 
+	sub		$16, %rdi		# undo second advancement
+	sub		$16, %rsi
+
 	/* buffer ends in the next 16 bytes but string has not ended yet */
-	lea		-16(%rsi), %rcx		# pointer to previous string chunk
+1:	lea		16(%rsi), %rcx		# pointer to the next string chunk
 	add		$16, %r10d		# restore number of remaining bytes
-	cmovnz		%rsi, %rcx		# if no bytes remain, we must not
+	cmovz		%rsi, %rcx		# if no bytes remain, we must not
 						# load additional bytes from RSI,
 						# so fake-load from RSI-16 instead
 	movdqa		(%rcx), %xmm0		# (fake) load source tail
@@ -114,32 +129,35 @@ ARCHENTRY(__stpncpy, baseline)
 	pmovmskb	%xmm1, %r8d
 	bts		%r10d, %r8d		# treat end of buffer as NUL
 	tzcnt		%r8d, %r8d		# where is the NUL byte?
-	movdqu		-16(%rsi, %r8, 1), %xmm0 # load source tail before NUL
-	lea		(%rdi, %r8, 1), %rax	# point return value to NUL byte
+	movdqu		(%rsi, %r8, 1), %xmm0 # load source tail before NUL
+	lea		16(%rdi, %r8, 1), %rax	# point return value to NUL byte
 						# or end of buffer
-	movdqu		%xmm0, -16(%rdi, %r8, 1) # store tail into the buffer
+	movdqu		%xmm0, (%rdi, %r8, 1) # store tail into the buffer
 	ret
 
+2:	sub		$16, %rdi		# undo second advancement
+	sub		$16, %rsi
+
 	/* string has ended and buffer has not */
-2:	tzcnt		%r8d, %r8d		# where did the string end?
+3:	tzcnt		%r8d, %r8d		# where did the string end?
 	lea		.Lmask+16(%rip), %rcx
-	lea		-16(%rdi, %r8), %rax 	# where the NUL byte will be
+	lea		(%rdi, %r8, 1), %rax 	# where the NUL byte will be
 	neg		%r8
 	movdqu		(%rcx, %r8, 1), %xmm1	# mask with FF where the string is,
 						# 00 where it is not
 	pand		%xmm1, %xmm0		# mask out bytes after the string
-	movdqu		%xmm0, -16(%rdi) 	# store masked current chunk
+	movdqu		%xmm0, (%rdi)	 	# store masked current chunk
 	pxor		%xmm1, %xmm1
 	sub		$16, %r10		# another full chunk left?
 	jb		1f
 
 	/* clear remaining destination buffer (tail has been cleared earlier) */
 	ALIGN_TEXT
-0:	movdqu		%xmm1, (%rdi)
+0:	movdqu		%xmm1, 16(%rdi)
 	sub		$16, %r10
 	jb		1f
 
-	movdqu		%xmm1, 16(%rdi)
+	movdqu		%xmm1, 32(%rdi)
 	add		$32, %rdi
 	sub		$16, %r10
 	jae		0b
