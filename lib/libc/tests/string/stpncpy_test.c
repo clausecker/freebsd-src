@@ -126,31 +126,28 @@ test_sentinel(char *dest, char *src, size_t destlen, size_t srclen)
 		}
 
 	if (fail)
-		atf_tc_fail("%s\n"
-		    "strncpy(%p \"%s\", %p \"%s\", %zu) = %p (want %p)\n",
+		atf_tc_fail_nonfatal("%s\n"
+		    "stpncpy(%p \"%s\", %p \"%s\", %zu) = %p (want %p)\n",
 		    fail, dest, dest, src, src, destlen, res, wantres);
 }
 
-
-ATF_TC_WITHOUT_HEAD(nul);
-ATF_TC_BODY(nul, tc)
+ATF_TC_WITHOUT_HEAD(null);
+ATF_TC_BODY(null, tc)
 {
-
-	test_stpncpy("");
+	ATF_CHECK_EQ(stpncpy_fn(NULL, NULL, 0), NULL);
 }
 
-ATF_TC_WITHOUT_HEAD(foo);
-ATF_TC_BODY(foo, tc)
+ATF_TC_WITHOUT_HEAD(bounds);
+ATF_TC_BODY(bounds, tc)
 {
+	size_t i;
+	char buf[64+1];
 
-	test_stpncpy("foo");
-}
-
-ATF_TC_WITHOUT_HEAD(glorp);
-ATF_TC_BODY(glorp, tc)
-{
-
-	test_stpncpy("glorp");
+	for (i = 0; i < sizeof(buf) - 1; i++) {
+		buf[i] = ' ' + i;
+		buf[i+1] = '\0';
+		test_stpncpy(buf);
+	}
 }
 
 ATF_TC_WITHOUT_HEAD(alignments);
@@ -177,9 +174,8 @@ ATF_TP_ADD_TCS(tp)
 	if (stpncpy_fn == NULL)
 		stpncpy_fn = stpncpy;
 
-	ATF_TP_ADD_TC(tp, nul);
-	ATF_TP_ADD_TC(tp, foo);
-	ATF_TP_ADD_TC(tp, glorp);
+	ATF_TP_ADD_TC(tp, null);
+	ATF_TP_ADD_TC(tp, bounds);
 	ATF_TP_ADD_TC(tp, alignments);
 
 	return (atf_no_error());
