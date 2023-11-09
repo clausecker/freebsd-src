@@ -36,12 +36,22 @@
 	.set stpncpy, __stpncpy
 ARCHFUNCS(__stpncpy)
 	ARCHFUNC(__stpncpy, scalar)
-	ARCHFUNC(__stpncpy, baselin)
+	ARCHFUNC(__stpncpy, baseline)
 ENDARCHFUNCS(__stpncpy)
 
 ARCHENTRY(__stpncpy, scalar)
 	ud2		// TODO
 ARCHEND(__stpncpy, scalar)
+
+	/*
+	 * this mask allows us to generate masks of 16-n 0xff bytes
+	 * followed by n 0x00 bytes by loading from .Lmask+n.
+	 */
+	.section	.rodata
+.Lmask:	.quad		0xffffffffffffffff
+	.quad		0xffffffffffffffff
+	.quad		0x0000000000000000
+	.quad		0x0000000000000000
 
 /* stpncpy(char *restrict rdi, const char *rsi, size_t rdx) */
 ARCHENTRY(__stpncpy, baseline)
@@ -60,67 +70,105 @@ ARCHENTRY(__stpncpy, baseline)
 	pmovmskb	%xmm0, %r8d
 
 	lea		(%rdx, %rcx, 1), %r10	# buffer length from alignment boundary
-	cmp		$48, %r10		# less than 3 lanes to play with?
-	jbe		.Lrunt			# if yes, use special runt processing
+	cmp		$32, %r10		# less than 2 chunks to play with?
+	jb		.Lrunt			# if yes, use special runt processing
 
-	sub		%rcx, %rdi		# make [RDI] correspond to [RSI]
-	and		%r9d, %r8d		# end of string during head?
+
+	movdqu		%xmm1, -15(%rdi, %rdx, 1) # clear final bytes of destination
+	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
+	and		%r9d, %r8d		# end of string within head?
 	jnz		.Lheadnul
 
-	/* 3 lanes or more to copy (first may be incomplete) */
-	movdqa		16(%rsi), %xmm0		# load second chunk from string
-	movdqu		(%rsi, %rcx, 1), %xmm2	# load head of source from memory
-	movdqu		%xmm2, (%rdi, %rcx, 1)	# and deposit into the destination
-	movdqu		%xmm0, 16(%rdi)		# also deposit second chunk
-	pcmpeqb		%xmm1, %xmm0		# NUL byte in second chunk?
-	pmovmskb	%xmm0, %r8d
+	movdqu		(%rsi, %rcx, 1), %xmm2	# load head from source buffer
+	movdqu		%xmm2, (%rdi, %rcx, 1)	# an deposit
+
+	add		$16, %rsi
+	add		$16, %rdi
+	sub		$32, %r10
+
+	ALIGN_TEXT
+0:	movdqa		(%rsi), %xmm0
+	add		$16, %rdi		# advance pointers to next chunk
+	add		$16, %rsi
+	pxor		%xmm1, %xmm1
+	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %r8d
 	test		%r8d, %r8d
-	jnz		.Lsecondnul
+	jnz		2f
 
+	movdqu		%xmm0, -16(%rdi)
+	sub		$16, %r10		# another full chunk left?
+	jae		0b
 
-	movdqa		32(%rsi), %xmm0		# load third chunk from string
-	movdqu		%xmm0, 32(%rdi)		# and deposit into the destination	
-
-	/* transform coordinates for further processing */
-	add		%r10, %rsi		# end of source buffer
-	add		%r10, %rdi		# end of destination buffer
-	neg		%r10			# now RSI+RAX point to the beginning
-
-	add		$32, %r10		# account for the bytes already processed
-	movdqa			
-
-	/* NUL byte found while processing head */
-.Lheadnul:
-	tzcnt		%r8d, %r8d		# location of NUL byte
-	movdqu		-4*16-8(%rsp, %rcx, 1), %xmm0	# load head from bounce buffer
-	movdqu		%xmm0, (%rdi, %rcx, 1)	# store head into destination buffer
-
-	lea		(%rdi, %r8, 1), %rax	# point to the NUL byte
-	add		%r10, %rdi		# point to end of buffer
-	neg		%r10			# RDI[R10] points to beginning of buffer
-	lea		16(%r10, %r8, 1), %r10	# RDI[R10-16] points to NUL byte
-
-
-	/* fill the remaining destination with NUL bytes */
-0:	movdqu		%xmm1, -16(%rdi, %r10, 1)
-	add		$16, %r10
-	jc		1f
-
-	movdqu		%xmm1, -16(%rdi, %r10, 1)
-	add		$16, %r10
-	jnc		0b
-
-1:	movdqu		%xmm1, -15(%rdi)	# clear last 15 bytes of buffer
+	/* buffer ends in the next 16 bytes but string has not ended yet */
+	lea		-16(%rsi), %rcx		# pointer to previous string chunk
+	add		$16, %r10d		# restore number of remaining bytes
+	cmovnz		%rsi, %rcx		# if no bytes remain, we must not
+						# load additional bytes from RSI,
+						# so fake-load from RSI-16 instead
+	movdqa		(%rcx), %xmm0		# (fake) load source tail
+	pxor		%xmm1, %xmm1
+	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %r8d
+	bts		%r10d, %r8d		# treat end of buffer as NUL
+	tzcnt		%r8d, %r8d		# where is the NUL byte?
+	movdqu		-16(%rsi, %r8, 1), %xmm0 # load source tail before NUL
+	lea		(%rdi, %r8, 1), %rax	# point return value to NUL byte
+						# or end of buffer
+	movdqu		%xmm0, -16(%rdi, %r8, 1) # store tail into the buffer
 	ret
 
-	/* NUL byte found while processing the second chunk */
-.Lsecondnul:
-	tzcnt		%r8d, %r8d		# where is the NUL?
-	lea		(%rdi, %r8, 1), %rax	# point to the NUL byte
-	add		%r10, %rdi		# point to end of buffer
-	neg		%r10			# RDI[RAX] points to beginning of buffer
-	lea		32(%r10, %r8, 1), %r10	# RDI[RAX-16] points to NUL byte
-	jmp		0b			# clear buffer with same loop as above	
+	/* string has ended and buffer has not */
+2:	tzcnt		%r8d, %r8d		# where did the string end?
+	lea		.Lmask+16(%rip), %rcx
+	lea		-16(%rdi, %r8), %rax 	# where the NUL byte will be
+	neg		%r8
+	movdqu		(%rcx, %r8, 1), %xmm1	# mask with FF where the string is,
+						# 00 where it is not
+	pand		%xmm1, %xmm0		# mask out bytes after the string
+	movdqu		%xmm0, -16(%rdi) 	# store masked current chunk
+	pxor		%xmm1, %xmm1
+	sub		$16, %r10		# another full chunk left?
+	jae		1f
+
+	/* clear remaining destination buffer (tail has been cleared earlier) */
+	ALIGN_TEXT
+0:	movdqu		%xmm1, (%rdi)
+	sub		$16, %r10
+	jae		1f
+
+	movdqu		%xmm1, 16(%rdi)
+	add		$32, %rdi
+	sub		$16, %r10
+	jb		0b
+
+1:	ret
+
+	/* at least two chunks to play with and NUL while processing head */
+.Lheadnul:
+	movdqu		-4*16-8(%rsp, %rcx, 1), %xmm0 # load start of source from stack
+	tzcnt		%r8d, %r8d		# find location of NUL byte
+	movdqu		%xmm0, (%rdi, %rcx, 1)	# deposit head in the destination
+	movdqu		%xmm1, (%rdi, %r8, 1)	# clear out following bytes
+	movdqu		%xmm1, 16(%rdi)		# clear out second chunk
+	lea		(%rdi, %r8, 1), %rax	# make RAX point to the NUL byte
+
+	add		$32, %rdi		# advance past first two chunks
+	sub		$32+16, %rdx		# advance past first three chunks
+	jb		1f			# did we pass the end of the buffer?
+
+	/* clear remaining destination buffer (tail has been cleared earlier) */
+	ALIGN_TEXT
+0:	movdqu		%xmm1, (%rdi)		# clear out buffer chunk
+	sub		$16, %rdx
+	jae		1f
+
+	movdqu		%xmm1, 16(%rdi)
+	add		$32, %rdi
+	sub		$16, %rdx
+	jb		0b
+
+1:	ret
 
 	/* 1--32 bytes to copy, bounce through the stack */
 .Lrunt:	dec		%r10d			# point to last char in xmm0
@@ -153,14 +201,11 @@ ARCHENTRY(__stpncpy, baseline)
 
 	/* end of string after one buffer */
 0:	tzcnt		%r8, %r8		# location of last char in string
-	movdqa		%xmm1, -4*16-7(%rsp, %r8, 1) # clear bytes behind string
+	movdqu		%xmm1, -4*16-7(%rsp, %r8, 1) # clear bytes behind string
 	cmpb		$0, (%rsi, %r8, 1)	# was the NUL byte copied?
 	cmovne		%edx, %r8d		# if not, set length to all 
 	lea		-4*16(%rsp, %rcx, 1), %rsi # start of string copy on stack
 	lea		(%rdi, %r8), %rax	# return pointer to NUL byte or rdi[rdx]
-
-	cmp	$32, %edx			# at least 32 bytes to transfer?
-	jae	.L3247
 
 	cmp	$16, %edx			# at least 16 bytes to transfer?
 	jae	.L1631
@@ -181,8 +226,6 @@ ARCHENTRY(__stpncpy, baseline)
 	mov	%dx, -1(%rdi, %rdx, 1)		# store last two bytes of string
 .L1:	ret
 
-.L3247:	movdqu	16(%rsi), %xmm0			# copy middle 16 bytes of string
-	movdqu	%xmm0, 16(%rdi)
 .L1631:	movdqu	(%rsi), %xmm0			# load first 16 bytes of string
 	movdqu	-15(%rsi, %rdx, 1), %xmm1	# load last 16 bytes of string
 	movdqu	%xmm0, (%rdi)
