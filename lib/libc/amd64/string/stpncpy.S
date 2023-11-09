@@ -40,7 +40,42 @@ ARCHFUNCS(__stpncpy)
 ENDARCHFUNCS(__stpncpy)
 
 ARCHENTRY(__stpncpy, scalar)
-	ud2		// TODO
+	push	%rbp		# establish stack frame
+	mov	%rsp, %rbp
+
+	push	%rdx
+	push	%rdi
+	push	%rsi
+	push	%rax		# dummy push for alignment
+
+	mov	%rsi, %rdi
+	xor	%esi, %esi
+	call	CNAME(__memchr)	# memchr(src, '\0', len)
+	pop	%rcx		# dummy pop
+	pop	%rsi
+	mov	-16(%rbp), %rdi
+
+	test	%rax, %rax	# NUL found?
+	jz	.Lfullcopy
+
+	mov	%rax, %rdx
+	sub	%rsi, %rdx	# copy until the NUL byte
+	add	%rdx, -16(%rbp)	# advance destination by string length
+	sub	%rdx, -8(%rbp)	# and shorten buffer size by string length
+	call	CNAME(memcpy)
+
+	pop	%rdi
+	pop	%rdx
+	xor	%esi, %esi
+	pop	%rbp
+	jmp	CNAME(memset)	# clear remaining buffer
+
+.Lfullcopy:
+	mov	-8(%rbp), %rdx
+	call	CNAME(memcpy)	# copy whole string
+	add	-8(%rbp), %rax	# point to dest[n]
+	leave
+	ret
 ARCHEND(__stpncpy, scalar)
 
 	/*
