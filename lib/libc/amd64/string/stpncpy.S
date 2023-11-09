@@ -55,6 +55,8 @@ ARCHEND(__stpncpy, scalar)
 
 /* stpncpy(char *restrict rdi, const char *rsi, size_t rdx) */
 ARCHENTRY(__stpncpy, baseline)
+#define bounce		(-3*16-8)		/* location of on-stack bounce buffer */
+
 	test		%rdx, %rdx		# no bytes to copy?
 	jz		.L0
 
@@ -65,17 +67,17 @@ ARCHENTRY(__stpncpy, baseline)
 	mov		$-1, %r9d
 	shl		%cl, %r9d		# mask of bytes belonging to the string
 	pxor		%xmm1, %xmm1
-	movdqa		%xmm0, -4*16-8(%rsp)	# stash copy of head on the stack
+	movdqa		%xmm0, bounce(%rsp)	# stash copy of head on the stack
 	pcmpeqb		%xmm1, %xmm0
 	pmovmskb	%xmm0, %r8d
 
+	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
 	lea		(%rdx, %rcx, 1), %r10	# buffer length from alignment boundary
 	cmp		$32, %r10		# less than 2 chunks to play with?
 	jb		.Lrunt			# if yes, use special runt processing
 
 
-	movdqu		%xmm1, -15(%rdi, %rdx, 1) # clear final bytes of destination
-	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
+	movdqu		%xmm1, -16(%rdi, %r10, 1) # clear final bytes of destination
 	and		%r9d, %r8d		# end of string within head?
 	jnz		.Lheadnul
 
@@ -129,24 +131,24 @@ ARCHENTRY(__stpncpy, baseline)
 	movdqu		%xmm0, -16(%rdi) 	# store masked current chunk
 	pxor		%xmm1, %xmm1
 	sub		$16, %r10		# another full chunk left?
-	jae		1f
+	jb		1f
 
 	/* clear remaining destination buffer (tail has been cleared earlier) */
 	ALIGN_TEXT
 0:	movdqu		%xmm1, (%rdi)
 	sub		$16, %r10
-	jae		1f
+	jb		1f
 
 	movdqu		%xmm1, 16(%rdi)
 	add		$32, %rdi
 	sub		$16, %r10
-	jb		0b
+	jae		0b
 
 1:	ret
 
 	/* at least two chunks to play with and NUL while processing head */
 .Lheadnul:
-	movdqu		-4*16-8(%rsp, %rcx, 1), %xmm0 # load start of source from stack
+	movdqu		bounce(%rsp, %rcx, 1), %xmm0 # load start of source from stack
 	tzcnt		%r8d, %r8d		# find location of NUL byte
 	movdqu		%xmm0, (%rdi, %rcx, 1)	# deposit head in the destination
 	movdqu		%xmm1, (%rdi, %r8, 1)	# clear out following bytes
@@ -154,92 +156,74 @@ ARCHENTRY(__stpncpy, baseline)
 	lea		(%rdi, %r8, 1), %rax	# make RAX point to the NUL byte
 
 	add		$32, %rdi		# advance past first two chunks
-	sub		$32+16, %rdx		# advance past first three chunks
+	sub		$32+16, %r10		# advance past first three chunks
 	jb		1f			# did we pass the end of the buffer?
 
 	/* clear remaining destination buffer (tail has been cleared earlier) */
 	ALIGN_TEXT
 0:	movdqu		%xmm1, (%rdi)		# clear out buffer chunk
-	sub		$16, %rdx
-	jae		1f
+	sub		$16, %r10
+	jb		1f
 
 	movdqu		%xmm1, 16(%rdi)
 	add		$32, %rdi
-	sub		$16, %rdx
-	jb		0b
+	sub		$16, %r10
+	jae		0b
 
 1:	ret
 
 	/* 1--32 bytes to copy, bounce through the stack */
-.Lrunt:	dec		%r10d			# point to last char in xmm0
-	movdqa		%xmm1, -3*16-8(%rsp)	# clear out rest of on-stack copy
-	bts		%r10, %r8		# treat end of buffer as end of string
-	movdqa		%xmm1, -2*16-8(%rsp)
+.Lrunt:	movdqa		%xmm1, bounce+16(%rsp)	# clear out rest of on-stack copy
+	bts		%r10d, %r8d		# treat end of buffer as end of string
 	and		%r9w, %r8w		# end of string within first buffer?
-	jnz		0f
+	jnz		0f			# if yes, do not inspect second buffer
 
 	movdqa		16(%rsi), %xmm0		# load second chunk of input
-	movdqa		%xmm0, -3*16-8(%rsp)	# stash copy on stack
+	movdqa		%xmm0, bounce+16(%rsp)	# stash copy on stack
 	pcmpeqb		%xmm1, %xmm0		# NUL in second chunk?
-	pmovmskb	%xmm0, %r8d
-	sub		$16, %r10d		# point to last char in xmm0
-	bts		%r10, %r8		# treat end of buffer as end of string
-	test		$0xffff, %r8d		# end of string within second buffer?
-	jnz		1f	
-
-	/* third buffer must have end of string */
-	movdqa		32(%rsi), %xmm0		# load third chunk of input
-	movdqa		%xmm0, -2*16-8(%rsp)	# stash copy on stack
-	pcmpeqb		%xmm1, %xmm0		# NUL in second chunk?
-	pmovmskb	%xmm0, %r8d
-	sub		$16, %r10d		# point to last char in xmm0
-	bts		%r10, %r8		# mark end of buffer in xmm0
-	shl		$16, %r8
-
-	/* end of string after two buffers */
-1:	shl		$16, %r8
+	pmovmskb	%xmm0, %r9d
+	shl		$16, %r9d
+	or		%r9d, %r8d		# merge found NUL bytes into NUL mask
 
 	/* end of string after one buffer */
-0:	tzcnt		%r8, %r8		# location of last char in string
-	movdqu		%xmm1, -4*16-7(%rsp, %r8, 1) # clear bytes behind string
-	cmpb		$0, (%rsi, %r8, 1)	# was the NUL byte copied?
-	cmovne		%edx, %r8d		# if not, set length to all 
-	lea		-4*16(%rsp, %rcx, 1), %rsi # start of string copy on stack
-	lea		(%rdi, %r8), %rax	# return pointer to NUL byte or rdi[rdx]
+0:	tzcnt		%r8d, %r8d		# location of last char in string
+	movdqu		%xmm1, bounce(%rsp, %r8, 1) # clear bytes behind string
+	lea		bounce(%rsp, %rcx, 1), %rsi # start of string copy on stack
+	lea		(%rdi, %r8, 1), %rax	# return pointer to NUL byte
 
 	cmp	$16, %edx			# at least 16 bytes to transfer?
 	jae	.L1631
 
-	mov	(%rsi), %rcx			# load string head
+	mov	(%rsi), %r8			# load string head
 	cmp	$8, %edx			# at least 8 bytes to transfer?
 	jae	.L0815
 
 	cmp	$4, %edx			# at least 4 bytes to transfer?
 	jae	.L0407
 
-	movzwl	-1(%rsi, %rdx, 1), %edx		# load last two bytes of string
-	mov	%cl, (%rdi)			# store first byte
+	movzwl	-2(%rsi, %rdx, 1), %esi		# load last two bytes of string
+	mov	%r8b, (%rdi, %rcx, 1)		# store first byte
 
 	cmp	$2, %edx			# at least 2 bytes to transfer?
 	jb	.L1
 
-	mov	%dx, -1(%rdi, %rdx, 1)		# store last two bytes of string
+	mov	%si, -2(%rdi, %r10, 1)		# store last two bytes of string
 .L1:	ret
 
 .L1631:	movdqu	(%rsi), %xmm0			# load first 16 bytes of string
-	movdqu	-15(%rsi, %rdx, 1), %xmm1	# load last 16 bytes of string
-	movdqu	%xmm0, (%rdi)
-	movdqu	%xmm1, -15(%rdi, %rdx, 1)
+	movdqu	-16(%rsi, %rdx, 1), %xmm1	# load last 16 bytes of string
+	movdqu	%xmm0, (%rdi, %rcx, 1)
+	movdqu	%xmm1, -16(%rdi, %r10, 1)
 	ret
 
-.L0815:	mov	-7(%rsi, %rdx, 1), %rdx		# load last 8 bytes of string
-	mov	%rcx, (%rdi)
-	mov	%rdx, -7(%rdi, %rdx, 1)
+.L0815:	mov	-8(%rsi, %rdx, 1), %rdx		# load last 8 bytes of string
+	mov	%r8, (%rdi, %rcx, 1)
+	mov	%rdx, -8(%rdi, %r10, 1)
 	ret
 
-.L0407:	mov	-3(%rsi, %rdx, 1), %edx		# load last four bytes of string
-	mov	%ecx, (%rdi)
-	mov	%edx, -3(%rdi, %rdx, 1)
+.L0407:	mov	-4(%rsi, %rdx, 1), %edx		# load last four bytes of string
+	mov	%r8d, (%rdi, %rcx, 1)
+	mov	%edx, -4(%rdi, %r10, 1)
 	ret
 
 	/* length 0 buffer: just return dest */
