@@ -100,17 +100,17 @@ ARCHENTRY(__stpncpy, baseline)
 	movdqa		(%rsi), %xmm0		# load head
 	and		$0xf, %ecx		# offset from alignment
 	mov		$-1, %r9d
+	lea		-32(%rcx), %rax		# set up overflow-proof comparison rdx+rcx<32
 	shl		%cl, %r9d		# mask of bytes belonging to the string
+	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
 	pxor		%xmm1, %xmm1
 	movdqa		%xmm0, bounce(%rsp)	# stash copy of head on the stack
 	pcmpeqb		%xmm1, %xmm0
 	pmovmskb	%xmm0, %r8d
 
-	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
 	lea		(%rdx, %rcx, 1), %r10	# buffer length from alignment boundary
-	cmp		$32, %r10		# less than 2 chunks to play with?
-	jb		.Lrunt			# if yes, use special runt processing
-
+	add		%rdx, %rax		# less than 2 chunks (32 bytes) to play with?
+	jnc		.Lrunt			# if yes, use special runt processing
 
 	movdqu		%xmm1, -16(%rdi, %r10, 1) # clear final bytes of destination
 	and		%r9d, %r8d		# end of string within head?
@@ -245,43 +245,43 @@ ARCHENTRY(__stpncpy, baseline)
 	lea		bounce(%rsp, %rcx, 1), %rsi # start of string copy on stack
 	lea		(%rdi, %r8, 1), %rax	# return pointer to NUL byte
 
-	cmp	$16, %edx			# at least 16 bytes to transfer?
-	jae	.L1631
+	cmp		$16, %edx		# at least 16 bytes to transfer?
+	jae		.L1631
 
-	mov	(%rsi), %r8			# load string head
-	cmp	$8, %edx			# at least 8 bytes to transfer?
-	jae	.L0815
+	mov		(%rsi), %r8		# load string head
+	cmp		$8, %edx		# at least 8 bytes to transfer?
+	jae		.L0815
 
-	cmp	$4, %edx			# at least 4 bytes to transfer?
-	jae	.L0407
+	cmp		$4, %edx		# at least 4 bytes to transfer?
+	jae		.L0407
 
-	movzwl	-2(%rsi, %rdx, 1), %esi		# load last two bytes of string
-	mov	%r8b, (%rdi, %rcx, 1)		# store first byte
+	movzwl		-2(%rsi, %rdx, 1), %esi	# load last two bytes of string
+	mov		%r8b, (%rdi, %rcx, 1)	# store first byte
 
-	cmp	$2, %edx			# at least 2 bytes to transfer?
-	jb	.L1
+	cmp		$2, %edx		# at least 2 bytes to transfer?
+	jb		.L1
 
-	mov	%si, -2(%rdi, %r10, 1)		# store last two bytes of string
+	mov		%si, -2(%rdi, %r10, 1)	# store last two bytes of string
 .L1:	ret
 
-.L1631:	movdqu	(%rsi), %xmm0			# load first 16 bytes of string
-	movdqu	-16(%rsi, %rdx, 1), %xmm1	# load last 16 bytes of string
-	movdqu	%xmm0, (%rdi, %rcx, 1)
-	movdqu	%xmm1, -16(%rdi, %r10, 1)
+.L1631:	movdqu		(%rsi), %xmm0		# load first 16 bytes of string
+	movdqu		-16(%rsi, %rdx, 1), %xmm1 # load last 16 bytes of string
+	movdqu		%xmm0, (%rdi, %rcx, 1)
+	movdqu		%xmm1, -16(%rdi, %r10, 1)
 	ret
 
-.L0815:	mov	-8(%rsi, %rdx, 1), %rdx		# load last 8 bytes of string
-	mov	%r8, (%rdi, %rcx, 1)
-	mov	%rdx, -8(%rdi, %r10, 1)
+.L0815:	mov		-8(%rsi, %rdx, 1), %rdx	# load last 8 bytes of string
+	mov		%r8, (%rdi, %rcx, 1)
+	mov		%rdx, -8(%rdi, %r10, 1)
 	ret
 
-.L0407:	mov	-4(%rsi, %rdx, 1), %edx		# load last four bytes of string
-	mov	%r8d, (%rdi, %rcx, 1)
-	mov	%edx, -4(%rdi, %r10, 1)
+.L0407:	mov		-4(%rsi, %rdx, 1), %edx	# load last four bytes of string
+	mov		%r8d, (%rdi, %rcx, 1)
+	mov		%edx, -4(%rdi, %r10, 1)
 	ret
 
 	/* length 0 buffer: just return dest */
-.L0:	mov	%rdi, %rax
+.L0:	mov		%rdi, %rax
 	ret
 ARCHEND(__stpncpy, baseline)
 
