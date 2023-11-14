@@ -133,7 +133,7 @@ ARCHENTRY(__stpncpy, baseline)
 	jnz		3f
 
 	movdqu		%xmm0, (%rdi)
-	sub		$16, %r10		# another full chunk left?
+	cmp		$16, %r10		# another full chunk left?
 	jb		1f
 
 	movdqa		16(%rsi), %xmm0
@@ -146,15 +146,15 @@ ARCHENTRY(__stpncpy, baseline)
 	jnz		2f
 
 	movdqu		%xmm0, -16(%rdi)
-	sub		$16, %r10		# another full chunk left?
+	sub		$32, %r10		# another full chunk left?
 	jae		0b
 
 	sub		$16, %rdi		# undo second advancement
 	sub		$16, %rsi
+	add		$16, %r10d		# restore number of remaining bytes
 
 	/* buffer ends in the next 16 bytes but string has not ended yet */
 1:	lea		16(%rsi), %rcx		# pointer to the next string chunk
-	add		$16, %r10d		# restore number of remaining bytes
 	cmovz		%rsi, %rcx		# if no bytes remain, we must not
 						# load additional bytes from RSI,
 						# so fake-load from RSI-16 instead
@@ -172,6 +172,7 @@ ARCHENTRY(__stpncpy, baseline)
 
 2:	sub		$16, %rdi		# undo second advancement
 	sub		$16, %rsi
+	sub		$16, %r10
 
 	/* string has ended and buffer has not */
 3:	tzcnt		%r8d, %r8d		# where did the string end?
