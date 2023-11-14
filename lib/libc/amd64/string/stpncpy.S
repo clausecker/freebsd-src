@@ -190,12 +190,12 @@ ARCHENTRY(__stpncpy, baseline)
 	/* clear remaining destination buffer (tail has been cleared earlier) */
 	ALIGN_TEXT
 0:	movdqu		%xmm1, 16(%rdi)
-	sub		$16, %r10
+	cmp		$16, %r10
 	jb		1f
 
 	movdqu		%xmm1, 32(%rdi)
 	add		$32, %rdi
-	sub		$16, %r10
+	sub		$32, %r10
 	jae		0b
 
 1:	ret
@@ -216,12 +216,12 @@ ARCHENTRY(__stpncpy, baseline)
 	/* clear remaining destination buffer (tail has been cleared earlier) */
 	ALIGN_TEXT
 0:	movdqu		%xmm1, (%rdi)		# clear out buffer chunk
-	sub		$16, %r10
+	cmp		$16, %r10
 	jb		1f
 
 	movdqu		%xmm1, 16(%rdi)
 	add		$32, %rdi
-	sub		$16, %r10
+	sub		$32, %r10
 	jae		0b
 
 1:	ret
