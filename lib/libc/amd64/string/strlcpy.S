@@ -64,4 +64,123 @@ ARCHENTRY(__strlcpy, scalar)
 	ret
 ARCHEND(__strlcpy, scalar)
 
+#if 0
+ARCHENTRY(__strlcpy, baseline)
+	mov		%esi, %ecx
+	mov		%rsi, %r11		# remember original source pointer
+	and		$~0xf, %rsi		# align source tp 17 nyzes
+	movdqa		(%rsi), %xmm0		# load aligned head
+	and		$0xf, %ecx		# offset from alignment
+	mov		$-1, %r9d
+	lea		-32(%rcx), %rax		# set up overflow-proof comparison rdx+rcx<32
+	shl		%cl, %r9d		# bytes of XMM0 that are in the string
+	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
+	pxor		%xmm1, %xmm1
+	pcmpeqb		%xmm1, %xmm0		# any NUL bytes?
+	pmovmskb	%xmm0, %r8d
+
+	lea		(%rdx, %rcx, 1), %r10	# buffer length from alignment boundary
+	add		%rdx, %rax		# less than 2 chunks (32 bytes) to play with?
+	jnc		.Lrunt			# if yes, use special runt processing
+
+	and		%r9d, %r8d		# end of string within head?
+	jnz		.Lheadnul
+
+	/* process second chunk */
+	movdqu		16(%rsi), %xmm0
+	movdqu		(%rsi, %rcx, 1), %xmm2	# load head from source buffer
+	add		$32, %rsi		# advance past first two chunks
+	add		$32, %rdi
+	pxor		%xmm1, %xmm1
+	movdqu		%xmm2, (%rdi, %rcx, 1)	# and deposit
+	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %r8d
+	test		%r8d, %r8d
+	jnz		.Lsecondnul
+
+	sub		$48, %r10		# buffer at least 3 chunks long?
+	jbe		4f
+
+	/* main loop unrolled twice */
+	ALIGN_TEXT
+0:	movdqa		(%rsi), %xmm0
+	pxor		%xmm1, %xmm1
+	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %r8d
+	test		%r8d, %r8d
+	jnz		3f
+
+	movdqu		%xmm0, (%rdi)
+	cmp		$16, %r10		# another full chunk left?
+	jbe		1f
+
+	movdqa		16(%rsi), %xmm0
+	add		$32, %rdi		# advance pointers to next chunk
+	add		$32, %rsi
+	pxor		%xmm1, %xmm1
+	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %r8d
+	test		%r8d, %r8d
+	jnz		2f
+
+	movdqu		%xmm0, -16(%rdi)
+	sub		$32, %r10		# another full chunk left?
+	ja		0b
+
+4:	sub		$16, %rdi		# undo second advancement
+	sub		$16, %rsi
+	add		$16, %r10d		# restore number of remaining bytes
+
+	/* buffer has 1--16 bytes left, but string didn't end yet */
+1:	pxor		%xmm1, %xmm1
+	pcmpeqb		16(%rsi), %xmm1		# is there a NUL byte in the next chunk?
+	pmovmskb	%xmm1, %r8d
+	dec		%r10d			# have r10d refer to the last buffer byte
+	mov		%r8d, %ecx
+	bts		%r10d, %ecx		# NUL byte or end of buffer?
+	tzcnt		%ecx, %ecx		# how many bytes preceed the NUL/buffer end?
+	movdqu		(%rsi, %rcx, 1), %xmm0	# load tail (not including the NUL)
+	movdqu		%xmm0, (%rdi, %rcx, 1)	# and deposit into the destination
+	movb		$0, 16(%rdi, %rcx, 1)	# NUL terminate destination
+
+	/* find source length for return value */
+	add		$32, %rsi		# advance past previous and this iteration
+	test		%r8d, %r8d		# NUL in the chunk we just read?
+	jnz		5f
+
+	ALIGN_TEXT
+7:	pxor		%xmm1, %xmm1
+	pcmpeqb		(%rsi), %xmm1
+	pmovmskb	%xmm1, %r8d
+	test		%r8d, %r8d
+	jnz		6f
+
+	pxor		%xmm1, %xmm1
+	pcmpeqb		16(%rsi), %xmm1
+	pmovmskb	%xmm1, %r8d
+	add		$32, %rsi		# advance to next iteration
+	test		%r8d, %r8d
+	jz		7b
+
+5:	sub		$16, %rsi
+6:	tzcnt		%r8d, %r8d		# find the first NUL byte
+	sub		%r11, %rsi		# compute string length
+	lea		(%rsi, %r8), %rax
+	ret
+
+2:	sub		$16, %rdi		# undo second advancement
+	sub		$16, %rsi
+	sub		$16, %r10
+
+	/* string has ended and buffer has not */
+3:	...
+
+.Lrunt:	...
+.Lheadnul:
+	...
+.Lsecondnul:
+	...
+ARCHEND(__strlcpy, baseline)
+#endif
+
 	.section .note.GNU-stack,"",%progbits
