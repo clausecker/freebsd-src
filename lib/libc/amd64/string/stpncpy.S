@@ -100,7 +100,7 @@ ARCHENTRY(__stpncpy, baseline)
 	movdqa		(%rsi), %xmm0		# load head
 	and		$0xf, %ecx		# offset from alignment
 	mov		$-1, %r9d
-	lea		-32(%rcx), %rax		# set up overflow-proof comparison rdx+rcx<32
+	lea		-32(%rcx), %rax		# set up overflow-proof comparison rdx+rcx<=32
 	shl		%cl, %r9d		# mask of bytes belonging to the string
 	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
 	pxor		%xmm1, %xmm1
@@ -133,8 +133,8 @@ ARCHENTRY(__stpncpy, baseline)
 	jnz		3f
 
 	movdqu		%xmm0, (%rdi)
-	cmp		$16, %r10		# another full chunk left?
-	jb		1f
+	cmp		$16, %r10		# more than a full chunk left?
+	jbe		1f
 
 	movdqa		16(%rsi), %xmm0
 	add		$32, %rdi		# advance pointers to next chunk
@@ -146,28 +146,23 @@ ARCHENTRY(__stpncpy, baseline)
 	jnz		2f
 
 	movdqu		%xmm0, -16(%rdi)
-	sub		$32, %r10		# another full chunk left?
-	jae		0b
+	sub		$32, %r10		# more than another full chunk left?
+	ja		0b
 
 	sub		$16, %rdi		# undo second advancement
 	sub		$16, %rsi
 	add		$16, %r10d		# restore number of remaining bytes
 
-	/* buffer ends in the next 16 bytes but string has not ended yet */
-1:	lea		16(%rsi), %rcx		# pointer to the next string chunk
-	cmovz		%rsi, %rcx		# if no bytes remain, we must not
-						# load additional bytes from RSI,
-						# so fake-load from RSI-16 instead
-	movdqa		(%rcx), %xmm0		# (fake) load source tail
-	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	/* 1--16 bytes left but string has not ended yet */
+1:	pxor		%xmm1, %xmm1
+	pcmpeqb		16(%rsi), %xmm1		# NUL byte in source tail?
 	pmovmskb	%xmm1, %r8d
 	bts		%r10d, %r8d		# treat end of buffer as NUL
 	tzcnt		%r8d, %r8d		# where is the NUL byte?
-	movdqu		(%rsi, %r8, 1), %xmm0 # load source tail before NUL
+	movdqu		(%rsi, %r8, 1), %xmm0	# load source tail before NUL
 	lea		16(%rdi, %r8, 1), %rax	# point return value to NUL byte
 						# or end of buffer
-	movdqu		%xmm0, (%rdi, %r8, 1) # store tail into the buffer
+	movdqu		%xmm0, (%rdi, %r8, 1)	# store tail into the buffer
 	ret
 
 2:	sub		$16, %rdi		# undo second advancement
@@ -185,18 +180,18 @@ ARCHENTRY(__stpncpy, baseline)
 	movdqu		%xmm0, (%rdi)	 	# store masked current chunk
 	pxor		%xmm1, %xmm1
 	sub		$16, %r10		# another full chunk left?
-	jb		1f
+	jbe		1f
 
 	/* clear remaining destination buffer (tail has been cleared earlier) */
 	ALIGN_TEXT
 0:	movdqu		%xmm1, 16(%rdi)
 	cmp		$16, %r10
-	jb		1f
+	jbe		1f
 
 	movdqu		%xmm1, 32(%rdi)
 	add		$32, %rdi
 	sub		$32, %r10
-	jae		0b
+	ja		0b
 
 1:	ret
 
@@ -211,18 +206,18 @@ ARCHENTRY(__stpncpy, baseline)
 
 	add		$32, %rdi		# advance past first two chunks
 	sub		$32+16, %r10		# advance past first three chunks
-	jb		1f			# did we pass the end of the buffer?
+	jbe		1f			# did we pass the end of the buffer?
 
 	/* clear remaining destination buffer (tail has been cleared earlier) */
 	ALIGN_TEXT
 0:	movdqu		%xmm1, (%rdi)		# clear out buffer chunk
 	cmp		$16, %r10
-	jb		1f
+	jbe		1f
 
 	movdqu		%xmm1, 16(%rdi)
 	add		$32, %rdi
 	sub		$32, %r10
-	jae		0b
+	ja		0b
 
 1:	ret
 
