@@ -36,7 +36,7 @@
 	.set strlcpy, __strlcpy
 ARCHFUNCS(__strlcpy)
 	ARCHFUNC(__strlcpy, scalar)
-//	ARCHFUNC(__strlcpy, baseline)
+	ARCHFUNC(__strlcpy, baseline)
 ENDARCHFUNCS(__strlcpy)
 
 ARCHENTRY(__strlcpy, scalar)
@@ -64,123 +64,225 @@ ARCHENTRY(__strlcpy, scalar)
 	ret
 ARCHEND(__strlcpy, scalar)
 
-#if 0
 ARCHENTRY(__strlcpy, baseline)
+	sub		$1, %rdx		# do not count NUL byte in buffer length
+	jb		.L0			# go to special code path if len was 0
+
 	mov		%esi, %ecx
-	mov		%rsi, %r11		# remember original source pointer
-	and		$~0xf, %rsi		# align source tp 17 nyzes
+	mov		%rsi, %r9		# stash a copy of the source pointer for later
+	and		$~0xf, %rsi
 	movdqa		(%rsi), %xmm0		# load aligned head
-	and		$0xf, %ecx		# offset from alignment
-	mov		$-1, %r9d
-	lea		-32(%rcx), %rax		# set up overflow-proof comparison rdx+rcx<32
-	shl		%cl, %r9d		# bytes of XMM0 that are in the string
+	mov		$-1, %r8d
+	and		$0xf, %ecx
 	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
 	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm1, %xmm0		# any NUL bytes?
-	pmovmskb	%xmm0, %r8d
+	shl		%cl, %r8d		# mask of bytes in the string
+	pcmpeqb		%xmm0, %xmm1		# NUL found in head?
+	pmovmskb	%xmm1, %eax
+	and		%r8d, %eax
+	jnz		.Lhead_nul
 
-	lea		(%rdx, %rcx, 1), %r10	# buffer length from alignment boundary
-	add		%rdx, %rax		# less than 2 chunks (32 bytes) to play with?
-	jnc		.Lrunt			# if yes, use special runt processing
+	movdqa		16(%rsi), %xmm3		# load second string chunk
+	movdqu		(%rsi, %rcx, 1), %xmm2	# load unaligned string head
+	mov		$32, %r8d
+	sub		%ecx, %r8d		# head length + length of second chunk
+	pxor		%xmm1, %xmm1
+	pcmpeqb		%xmm3, %xmm1		# NUL found in second chunk?
 
-	and		%r9d, %r8d		# end of string within head?
-	jnz		.Lheadnul
+	sub		%r8, %rdx		# enough space left for the second chunk?
+	jbe		.Lhead_buf_end
 
 	/* process second chunk */
-	movdqu		16(%rsi), %xmm0
-	movdqu		(%rsi, %rcx, 1), %xmm2	# load head from source buffer
-	add		$32, %rsi		# advance past first two chunks
-	add		$32, %rdi
-	pxor		%xmm1, %xmm1
-	movdqu		%xmm2, (%rdi, %rcx, 1)	# and deposit
-	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
-	pmovmskb	%xmm1, %r8d
-	test		%r8d, %r8d
-	jnz		.Lsecondnul
+	pmovmskb	%xmm1, %eax
+	test		%eax, %eax
+	jnz		.Lsecond_nul
 
-	sub		$48, %r10		# buffer at least 3 chunks long?
-	jbe		4f
+	/* string didn't end in second chunk and neither did buffer -- not a runt! */
+	movdqa		32(%rsi), %xmm0		# load next string chunk
+	pxor		%xmm1, %xmm1
+	movdqu		%xmm2, (%rdi, %rcx, 1)	# deposit head into buffer
+	movdqu		%xmm3, 16(%rdi)		# deposit second chunk
+	sub		%rsi, %rdi		# express RDI as distance from RSI
+	add		$32, %rsi		# advance RSI past first two chunks
+	sub		$16, %rdx		# enough left for another round?
+	jbe		1f
 
 	/* main loop unrolled twice */
 	ALIGN_TEXT
-0:	movdqa		(%rsi), %xmm0
-	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
-	pmovmskb	%xmm1, %r8d
-	test		%r8d, %r8d
+0:	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %eax
+	test		%eax, %eax
 	jnz		3f
 
-	movdqu		%xmm0, (%rdi)
-	cmp		$16, %r10		# another full chunk left?
-	jbe		1f
-
-	movdqa		16(%rsi), %xmm0
-	add		$32, %rdi		# advance pointers to next chunk
-	add		$32, %rsi
+	movdqu		%xmm0, (%rsi, %rdi)
+	movdqa		16(%rsi), %xmm0		# load next string chunk
 	pxor		%xmm1, %xmm1
-	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
-	pmovmskb	%xmm1, %r8d
-	test		%r8d, %r8d
-	jnz		2f
+	cmp		$16, %rdx		# more than a full chunk left?
+	jbe		2f
 
-	movdqu		%xmm0, -16(%rdi)
-	sub		$32, %r10		# another full chunk left?
+	add		$32, %rsi		# advance pointers to next chunk
+	pcmpeqb		%xmm0, %xmm1		# NUL byte encountered?
+	pmovmskb	%xmm1, %eax
+	test		%eax, %eax
+	jnz		4f
+
+	movdqu		%xmm0, -16(%rsi, %rdi)
+	movdqa		(%rsi), %xmm0		# load next string chunk
+	pxor		%xmm1, %xmm1
+	sub		$32, %rdx
 	ja		0b
 
-4:	sub		$16, %rdi		# undo second advancement
-	sub		$16, %rsi
-	add		$16, %r10d		# restore number of remaining bytes
+1:	sub		$16, %rsi		# undo second advancement
+	add		$16, %rdx
 
-	/* buffer has 1--16 bytes left, but string didn't end yet */
-1:	pxor		%xmm1, %xmm1
-	pcmpeqb		16(%rsi), %xmm1		# is there a NUL byte in the next chunk?
-	pmovmskb	%xmm1, %r8d
-	dec		%r10d			# have r10d refer to the last buffer byte
-	mov		%r8d, %ecx
-	bts		%r10d, %ecx		# NUL byte or end of buffer?
-	tzcnt		%ecx, %ecx		# how many bytes preceed the NUL/buffer end?
-	movdqu		(%rsi, %rcx, 1), %xmm0	# load tail (not including the NUL)
-	movdqu		%xmm0, (%rdi, %rcx, 1)	# and deposit into the destination
-	movb		$0, 16(%rdi, %rcx, 1)	# NUL terminate destination
+	/* 1--16 bytes left in the buffer but string has not ended yet */
+2:	pcmpeqb		%xmm1, %xmm0		# NUL byte encountered?
+	pmovmskb	%xmm0, %r8d
+	mov		%r8d, %eax
+	bts		%edx, %r8d		# treat end of buffer as end of string
+	tzcnt		%r8d, %r8d		# find tail length
+	add		%rsi, %rdi		# restore RDI
+	movdqu		(%rsi, %r8, 1), %xmm0	# load string tail
+	movdqu		%xmm0, (%rdi, %r8, 1)	# store string tail
+	movb		$0, 16(%rdi, %r8, 1)	# NUL terminate
 
-	/* find source length for return value */
-	add		$32, %rsi		# advance past previous and this iteration
-	test		%r8d, %r8d		# NUL in the chunk we just read?
-	jnz		5f
+	/* continue to find the end of the string */
+	test		%eax, %eax		# end of string already reached?
+	jnz		1f
 
 	ALIGN_TEXT
-7:	pxor		%xmm1, %xmm1
-	pcmpeqb		(%rsi), %xmm1
-	pmovmskb	%xmm1, %r8d
-	test		%r8d, %r8d
-	jnz		6f
-
+0:	pcmpeqb		32(%rsi), %xmm1
+	pmovmskb	%xmm1, %eax
 	pxor		%xmm1, %xmm1
-	pcmpeqb		16(%rsi), %xmm1
-	pmovmskb	%xmm1, %r8d
-	add		$32, %rsi		# advance to next iteration
-	test		%r8d, %r8d
-	jz		7b
+	test		%eax, %eax
+	jnz		2f
 
-5:	sub		$16, %rsi
-6:	tzcnt		%r8d, %r8d		# find the first NUL byte
-	sub		%r11, %rsi		# compute string length
-	lea		(%rsi, %r8), %rax
+	pcmpeqb		48(%rsi), %xmm1
+	pmovmskb	%xmm1, %eax
+	pxor		%xmm1, %xmm1
+	add		$32, %rsi
+	test		%eax, %eax
+	jz		0b
+
+1:	sub		$16, %rsi		# undo second advancement
+2:	tzcnt		%eax, %eax		# where is the NUL byte?
+	sub		%r9, %rsi
+	lea		32(%rsi, %rax, 1), %rax	# return string length
 	ret
 
-2:	sub		$16, %rdi		# undo second advancement
-	sub		$16, %rsi
-	sub		$16, %r10
+4:	sub		$16, %rsi		# undo second advancement
+	add		$16, %rdx		# restore number of remaining bytes
 
-	/* string has ended and buffer has not */
-3:	...
+	/* string has ended but buffer has not */
+3:	tzcnt		%eax, %eax		# find length of string tail
+	movdqu		-15(%rsi, %rax, 1), %xmm0 # load string tail (incl. NUL)
+	add		%rsi, %rdi		# restore destination pointer
+	movdqu		%xmm0, -15(%rdi, %rax, 1) # store string tail (incl. NUL)
+	add		%rsi, %rax		# point to the NUL byte
+	sub		%r9, %rax		# return string length
+	ret
 
-.Lrunt:	...
-.Lheadnul:
-	...
-.Lsecondnul:
-	...
+.Lhead_nul:
+	tzcnt		%eax, %eax		# where is the NUL byte?
+	sub		%ecx, %eax		# ... from the beginning of the string?
+	cmp		%rax, %rdx		# is the string shorter than the buffer?
+	cmova		%rax, %rdx		# copy only min(buflen, srclen) bytes
+	jmp		.Lrunt
+
+.Lhead_buf_end:
+	pmovmskb	%xmm1, %r8d
+	add		$32, %edx		# restore edx to (len-1) + ecx
+	add		%rcx, %rdi		# restore RDI
+	mov		%r8d, %eax
+	shl		$16, %r8d		# place 2nd chunk NUL mask into bits 16--31
+	bts		%rdx, %r8		# treat end of buffer as end of string
+	tzcnt		%r8, %rdx		# find string/bufer len from alignment boundary
+	sub		%ecx, %edx		# find actual string/buffer len
+
+	/* continue to find the end of the string */
+	test		%eax, %eax		# end of string already reached?
+	jnz		1f
+
+	ALIGN_TEXT
+0:	pcmpeqb		32(%rsi), %xmm1
+	pmovmskb	%xmm1, %eax
+	pxor		%xmm1, %xmm1
+	test		%eax, %eax
+	jnz		2f
+
+	pcmpeqb		48(%rsi), %xmm1
+	pmovmskb	%xmm1, %eax
+	pxor		%xmm1, %xmm1
+	add		$32, %rsi
+	test		%eax, %eax
+	jz		0b
+
+1:	sub		$16, %rsi
+2:	tzcnt		%eax, %eax
+	sub		%r9, %rsi
+	lea		32(%rsi, %rax, 1), %rax	# return string length
+	mov		%r9, %rsi		# restore RSI
+	jmp		.Lrunt2
+
+.Lsecond_nul:
+	add		%r8, %rdx		# restore buffer length
+	tzcnt		%eax, %eax		# where is the NUL byte?
+	lea		-16(%rcx), %r8d
+	sub		%r8d, %eax		# string length
+	cmp		%rax, %rdx		# is the string shorter than the buffer?
+	cmova		%rax, %rdx		# copy only min(buflen, srclen) bytes
+
+	/* process strings of 0--31 bytes (rdx: min(buflen, srclen), rax: srclen) */
+.Lrunt:	add		%rcx, %rdi		# restore RSI and RDI
+	add		%rcx, %rsi
+
+.Lrunt2:
+	movb		$0, (%rdi, %rdx, 1)	# write NUL terminator
+	cmp		$16, %rdx		# at least 16 bytes to copy (not incl NUL)?
+	jae		.L1632
+
+	cmp		$8, %rdx
+	jae		.L0815
+
+	cmp		$4, %rdx
+	jae		.L0407
+
+	cmp		$2, %rdx
+	jae		.L0203
+
+	/* copy 0--1 bytes */
+	movzbl		(%rsi), %ecx		# load first byte from src
+	mov		%cl, (%rdi)		# deposit into destination
+	movb		$0, (%rdi, %rdx, 1)	# add NUL terminator (again)
+	ret
+
+.L1632:	movdqu		(%rsi), %xmm0		# load first 16 bytes
+	movdqu		-16(%rsi, %rdx, 1), %xmm1 # load last 16 bytes (incl. NUL)
+	movdqu		%xmm0, (%rdi)
+	movdqu		%xmm1, -16(%rdi, %rdx, 1)
+	ret
+
+.L0815:	mov		(%rsi), %rcx
+	mov		-8(%rsi, %rdx, 1), %rsi
+	mov		%rcx, (%rdi)
+	mov		%rsi, -8(%rdi, %rdx, 1)
+	ret
+
+.L0407:	mov		(%rsi), %ecx
+	mov		-4(%rsi, %rdx, 1), %esi
+	mov		%ecx, (%rdi)
+	mov		%esi, -4(%rdi, %rdx, 1)
+	ret
+
+.L0203:	movzwl		(%rsi), %ecx
+	movzwl		-2(%rsi, %rdx, 1), %esi
+	mov		%cx, (%rdi)
+	mov		%si, -2(%rdi, %rdx, 1)
+	ret
+
+	/* length zero destination: just return the string length */
+.L0:	mov		%rsi, %rdi
+	jmp		CNAME(strlen)
 ARCHEND(__strlcpy, baseline)
-#endif
 
 	.section .note.GNU-stack,"",%progbits
