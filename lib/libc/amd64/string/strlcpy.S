@@ -69,15 +69,13 @@ ARCHENTRY(__strlcpy, baseline)
 	jb		.L0			# go to special code path if len was 0
 
 	mov		%esi, %ecx
+	pxor		%xmm1, %xmm1
 	mov		%rsi, %r9		# stash a copy of the source pointer for later
 	and		$~0xf, %rsi
-	movdqa		(%rsi), %xmm0		# load aligned head
+	pcmpeqb		(%rsi), %xmm1		# NUL found in head?
 	mov		$-1, %r8d
 	and		$0xf, %ecx
-	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
-	pxor		%xmm1, %xmm1
 	shl		%cl, %r8d		# mask of bytes in the string
-	pcmpeqb		%xmm0, %xmm1		# NUL found in head?
 	pmovmskb	%xmm1, %eax
 	and		%r8d, %eax
 	jnz		.Lhead_nul
@@ -100,7 +98,8 @@ ARCHENTRY(__strlcpy, baseline)
 	/* string didn't end in second chunk and neither did buffer -- not a runt! */
 	movdqa		32(%rsi), %xmm0		# load next string chunk
 	pxor		%xmm1, %xmm1
-	movdqu		%xmm2, (%rdi, %rcx, 1)	# deposit head into buffer
+	movdqu		%xmm2, (%rdi)		# deposit head into buffer
+	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
 	movdqu		%xmm3, 16(%rdi)		# deposit second chunk
 	sub		%rsi, %rdi		# express RDI as distance from RSI
 	add		$32, %rsi		# advance RSI past first two chunks
@@ -182,17 +181,71 @@ ARCHENTRY(__strlcpy, baseline)
 	sub		%r9, %rax		# return string length
 	ret
 
+.Lsecond_nul:
+	add		%r8, %rdx		# restore buffer length
+	tzcnt		%eax, %eax		# where is the NUL byte?
+	lea		-16(%rcx), %r8d
+	sub		%r8d, %eax		# string length
+	cmp		%rax, %rdx		# is the string shorter than the buffer?
+	cmova		%rax, %rdx		# copy only min(buflen, srclen) bytes
+	add		%rcx, %rsi		# restore RSI
+
+	/* process strings of 0--31 bytes (rdx: min(buflen, srclen), rax: srclen) */
+.Lrunt:	movb		$0, (%rdi, %rdx, 1)	# write NUL terminator
+	cmp		$16, %rdx		# at least 16 bytes to copy (not incl NUL)?
+	jb		.L0015
+
+	movdqu		(%rsi), %xmm0		# load first 16 bytes
+	movdqu		-16(%rsi, %rdx, 1), %xmm1 # load last 16 bytes (incl. NUL)
+	movdqu		%xmm0, (%rdi)
+	movdqu		%xmm1, -16(%rdi, %rdx, 1)
+	ret
+
 .Lhead_nul:
 	tzcnt		%eax, %eax		# where is the NUL byte?
 	sub		%ecx, %eax		# ... from the beginning of the string?
+	add		%rcx, %rsi		# restore RSI
 	cmp		%rax, %rdx		# is the string shorter than the buffer?
 	cmova		%rax, %rdx		# copy only min(buflen, srclen) bytes
-	jmp		.Lrunt
+	movb		$0, (%rdi, %rdx, 1)	# write NUL terminator
+
+	/* process strings of 0--15 bytes (rdx: min(buflen, srclen), rax: srclen) */
+.L0015:	cmp		$8, %rdx		# at least 8 bytes to copy?
+	jae		.L0815
+
+	cmp		$4, %rdx		# at least 4 bytes to copy?
+	jae		.L0407
+
+	cmp		$2, %rdx		# at least 2 bytes to copy?
+	jae		.L0203
+
+	/* copy 0--1 bytes */
+	movzbl		(%rsi), %ecx		# load first byte from src
+	mov		%cl, (%rdi)		# deposit into destination
+	movb		$0, (%rdi, %rdx, 1)	# add NUL terminator (again)
+	ret
+
+.L0815:	mov		(%rsi), %rcx
+	mov		-8(%rsi, %rdx, 1), %rsi
+	mov		%rcx, (%rdi)
+	mov		%rsi, -8(%rdi, %rdx, 1)
+	ret
+
+.L0407:	mov		(%rsi), %ecx
+	mov		-4(%rsi, %rdx, 1), %esi
+	mov		%ecx, (%rdi)
+	mov		%esi, -4(%rdi, %rdx, 1)
+	ret
+
+.L0203:	movzwl		(%rsi), %ecx
+	movzwl		-2(%rsi, %rdx, 1), %esi
+	mov		%cx, (%rdi)
+	mov		%si, -2(%rdi, %rdx, 1)
+	ret
 
 .Lhead_buf_end:
 	pmovmskb	%xmm1, %r8d
 	add		$32, %edx		# restore edx to (len-1) + ecx
-	add		%rcx, %rdi		# restore RDI
 	mov		%r8d, %eax
 	shl		$16, %r8d		# place 2nd chunk NUL mask into bits 16--31
 	bts		%rdx, %r8		# treat end of buffer as end of string
@@ -222,63 +275,7 @@ ARCHENTRY(__strlcpy, baseline)
 	sub		%r9, %rsi
 	lea		32(%rsi, %rax, 1), %rax	# return string length
 	mov		%r9, %rsi		# restore RSI
-	jmp		.Lrunt2
-
-.Lsecond_nul:
-	add		%r8, %rdx		# restore buffer length
-	tzcnt		%eax, %eax		# where is the NUL byte?
-	lea		-16(%rcx), %r8d
-	sub		%r8d, %eax		# string length
-	cmp		%rax, %rdx		# is the string shorter than the buffer?
-	cmova		%rax, %rdx		# copy only min(buflen, srclen) bytes
-
-	/* process strings of 0--31 bytes (rdx: min(buflen, srclen), rax: srclen) */
-.Lrunt:	add		%rcx, %rdi		# restore RSI and RDI
-	add		%rcx, %rsi
-
-.Lrunt2:
-	movb		$0, (%rdi, %rdx, 1)	# write NUL terminator
-	cmp		$16, %rdx		# at least 16 bytes to copy (not incl NUL)?
-	jae		.L1632
-
-	cmp		$8, %rdx
-	jae		.L0815
-
-	cmp		$4, %rdx
-	jae		.L0407
-
-	cmp		$2, %rdx
-	jae		.L0203
-
-	/* copy 0--1 bytes */
-	movzbl		(%rsi), %ecx		# load first byte from src
-	mov		%cl, (%rdi)		# deposit into destination
-	movb		$0, (%rdi, %rdx, 1)	# add NUL terminator (again)
-	ret
-
-.L1632:	movdqu		(%rsi), %xmm0		# load first 16 bytes
-	movdqu		-16(%rsi, %rdx, 1), %xmm1 # load last 16 bytes (incl. NUL)
-	movdqu		%xmm0, (%rdi)
-	movdqu		%xmm1, -16(%rdi, %rdx, 1)
-	ret
-
-.L0815:	mov		(%rsi), %rcx
-	mov		-8(%rsi, %rdx, 1), %rsi
-	mov		%rcx, (%rdi)
-	mov		%rsi, -8(%rdi, %rdx, 1)
-	ret
-
-.L0407:	mov		(%rsi), %ecx
-	mov		-4(%rsi, %rdx, 1), %esi
-	mov		%ecx, (%rdi)
-	mov		%esi, -4(%rdi, %rdx, 1)
-	ret
-
-.L0203:	movzwl		(%rsi), %ecx
-	movzwl		-2(%rsi, %rdx, 1), %esi
-	mov		%cx, (%rdi)
-	mov		%si, -2(%rdi, %rdx, 1)
-	ret
+	jmp		.Lrunt
 
 	/* length zero destination: just return the string length */
 .L0:	mov		%rsi, %rdi
