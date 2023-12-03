@@ -55,13 +55,13 @@ ARCHENTRY(__memccpy, scalar)
 
 	pop	%rsi
 	pop	%rdi
-	mov	%rax, %rdx
-	sub	%rsi, %rdx		# size = ptr - src
+	lea	1(%rax), %rdx
+	sub	%rsi, %rdx		# size = ptr - src + 1
 	mov	%rbx, %rcx
-	lea	1(%rdi, %rdx, 1), %rbx	# res = dest + size + 1
+	lea	(%rdi, %rdx, 1), %rbx	# res = dest + size
 	test	%rax, %rax		# if (ptr == NULL)
 	cmovz	%rcx, %rdx		# size = len
-	cmovz	%rax, %rbx		# ptr = NULL
+	cmovz	%rax, %rbx		# res = NULL
 	call	CNAME(memcpy)
 
 	mov	%rbx, %rax		# return (res)
