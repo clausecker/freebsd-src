@@ -32,6 +32,9 @@
 
 #define ALIGN_TEXT	.p2align 4,0x90	# 16-byte alignment, nop-filled
 
+	.weak	rindex
+	.set	rindex, strrchr
+
 ARCHFUNCS(strrchr)
 	ARCHFUNC(strrchr, scalar)
 	ARCHFUNC(strrchr, baseline)
