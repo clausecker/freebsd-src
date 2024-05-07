@@ -1,44 +1,18 @@
-/* crypto/sha/sha1dgst.c */
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
- * All rights reserved.
+/*
+ * Copyright 2011-2023 Tarsnap Backup Inc.  All rights reserved.
+ * Copyright 2005-2023 Colin Percival.  All rights reserved.
+ * Copyright 2014 Sean Kelly.  All rights reserved.
  *
- * This package is an SSL implementation written
- * by Eric Young (eay@cryptsoft.com).
- * The implementation was written so as to conform with Netscapes SSL.
- * 
- * This library is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution, be it the RC4, RSA,
- * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
- * included with this distribution is covered by the same copyright terms
- * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- * 
- * Copyright remains Eric Young's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Eric Young should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- * 1. Redistributions of source code must retain the copyright
+ * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes cryptographic software written by
- *     Eric Young (eay@cryptsoft.com)"
- *    The word 'cryptographic' can be left out if the routines from the library
- *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from 
- *    the apps directory (application code) you must include an acknowledgement:
- *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- * 
- * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
+ *   notice, this list of conditions and the following disclaimer in the
+ *   documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
@@ -49,456 +23,323 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- * 
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.]
  */
 
-#include <sys/types.h>
-
-#include <stdio.h>
+#include <sha.h>
+#include <stdint.h>
 #include <string.h>
-
-#if 0
-#include <machine/ansi.h>	/* we use the __ variants of bit-sized types */
-#endif
-#include <machine/endian.h>
-
-#undef  SHA_0
-#define SHA_1
-#include "sha.h"
-#include "sha_locl.h"
+#include <sys/endian.h>
 
 /*
- * The assembly-language code is not position-independent, so don't
- * try to use it in a shared library.
+ * Encode a length len/4 vector of (uint32_t) into a length len vector of
+ * (uint8_t) in big-endian form.  Assumes len is a multiple of 4.
  */
-#ifdef PIC
-#undef SHA1_ASM
-#endif
-
-char *SHA1_version="SHA1 part of SSLeay 0.9.0b 11-Oct-1998";
-
-/* Implemented from SHA-1 document - The Secure Hash Algorithm
- */
-
-#define INIT_DATA_h0 (unsigned long)0x67452301L
-#define INIT_DATA_h1 (unsigned long)0xefcdab89L
-#define INIT_DATA_h2 (unsigned long)0x98badcfeL
-#define INIT_DATA_h3 (unsigned long)0x10325476L
-#define INIT_DATA_h4 (unsigned long)0xc3d2e1f0L
-
-#define K_00_19	0x5a827999L
-#define K_20_39 0x6ed9eba1L
-#define K_40_59 0x8f1bbcdcL
-#define K_60_79 0xca62c1d6L
-
-#ifndef NOPROTO
-#  ifdef SHA1_ASM
-     void sha1_block_x86(SHA_CTX *c, const u_int32_t *p, int num);
-#    define sha1_block sha1_block_x86
-#  else
-     void sha1_block(SHA_CTX *c, const u_int32_t *p, int num);
-#  endif
-#else
-#  ifdef SHA1_ASM
-     void sha1_block_x86();
-#    define sha1_block sha1_block_x86
-#  else
-     void sha1_block();
-#  endif
-#endif
-
-
-#if BYTE_ORDER == LITTLE_ENDIAN && defined(SHA1_ASM)
-#  define	M_c2nl 		c2l
-#  define	M_p_c2nl 	p_c2l
-#  define	M_c2nl_p	c2l_p
-#  define	M_p_c2nl_p	p_c2l_p
-#  define	M_nl2c		l2c
-#else
-#  define	M_c2nl 		c2nl
-#  define	M_p_c2nl	p_c2nl
-#  define	M_c2nl_p	c2nl_p
-#  define	M_p_c2nl_p	p_c2nl_p
-#  define	M_nl2c		nl2c
-#endif
-
-void SHA1_Init(SHA_CTX *c)
-	{
-	c->h0=INIT_DATA_h0;
-	c->h1=INIT_DATA_h1;
-	c->h2=INIT_DATA_h2;
-	c->h3=INIT_DATA_h3;
-	c->h4=INIT_DATA_h4;
-	c->Nl=0;
-	c->Nh=0;
-	c->num=0;
-	}
-
-void
-SHA1_Update(SHA_CTX *c, const void *in, size_t len)
+static void
+be32enc_vect(uint8_t * dst, const uint32_t * src, size_t len)
 {
-	u_int32_t *p;
-	int ew,ec,sw,sc;
-	u_int32_t l;
-	const unsigned char *data = in;
+	size_t i;
 
-	if (len == 0) return;
+	for (i = 0; i < len / 4; i++)
+		be32enc(dst + i * 4, src[i]);
+}
 
-	l=(c->Nl+(len<<3))&0xffffffffL;
-	if (l < c->Nl) /* overflow */
-		c->Nh++;
-	c->Nh+=(len>>29);
-	c->Nl=l;
+/*
+ * Decode a big-endian length len vector of (uint8_t) into a length
+ * len/4 vector of (uint32_t).  Assumes len is a multiple of 4.
+ */
+static void
+be32dec_vect(uint32_t * dst, const uint8_t * src, size_t len)
+{
+	size_t i;
 
-	if (c->num != 0)
-		{
-		p=c->data;
-		sw=c->num>>2;
-		sc=c->num&0x03;
+	for (i = 0; i < len / 4; i++)
+		dst[i] = be32dec(src + i * 4);
+}
 
-		if ((c->num+len) >= SHA_CBLOCK)
-			{
-			l= p[sw];
-			M_p_c2nl(data,l,sc);
-			p[sw++]=l;
-			for (; sw<SHA_LBLOCK; sw++)
-				{
-				M_c2nl(data,l);
-				p[sw]=l;
-				}
-			len-=(SHA_CBLOCK-c->num);
+/* Elementary functions used by SHA1 */
+#define ROTL(x, n)	((x << n) | (x >> (32 - n)))
+#define Ch(x, y, z)	((x & (y ^ z)) ^ z)
+#define Maj(x, y, z)	((x & (y | z)) | (y & z))
 
-			sha1_block(c,p,64);
-			c->num=0;
-			/* drop through and do the rest */
-			}
-		else
-			{
-			c->num+=(int)len;
-			if ((sc+len) < 4) /* ugly, add char's to a word */
-				{
-				l= p[sw];
-				M_p_c2nl_p(data,l,sc,len);
-				p[sw]=l;
-				}
-			else
-				{
-				ew=(c->num>>2);
-				ec=(c->num&0x03);
-				l= p[sw];
-				M_p_c2nl(data,l,sc);
-				p[sw++]=l;
-				for (; sw < ew; sw++)
-					{ M_c2nl(data,l); p[sw]=l; }
-				if (ec)
-					{
-					M_c2nl_p(data,l,ec);
-					p[sw]=l;
-					}
-				}
-			return;
-			}
-		}
-	/* We can only do the following code for assember, the reason
-	 * being that the sha1_block 'C' version changes the values
-	 * in the 'data' array.  The assember code avoids this and
-	 * copies it to a local array.  I should be able to do this for
-	 * the C version as well....
-	 */
-#if 1
-#if BYTE_ORDER == BIG_ENDIAN || defined(SHA1_ASM)
-	if ((((unsigned int)data)%sizeof(u_int32_t)) == 0)
-		{
-		sw=len/SHA_CBLOCK;
-		if (sw)
-			{
-			sw*=SHA_CBLOCK;
-			sha1_block(c,(u_int32_t *)data,sw);
-			data+=sw;
-			len-=sw;
-			}
-		}
-#endif
-#endif
-	/* we now can process the input data in blocks of SHA_CBLOCK
-	 * chars and save the leftovers to c->data. */
-	p=c->data;
-	while (len >= SHA_CBLOCK)
-		{
-#if BYTE_ORDER == BIG_ENDIAN || BYTE_ORDER == LITTLE_ENDIAN
-		if (p != (u_int32_t *)data)
-			memcpy(p,data,SHA_CBLOCK);
-		data+=SHA_CBLOCK;
-#  if BYTE_ORDER == LITTLE_ENDIAN
-#    ifndef SHA1_ASM /* Will not happen */
-		for (sw=(SHA_LBLOCK/4); sw; sw--)
-			{
-			Endian_Reverse32(p[0]);
-			Endian_Reverse32(p[1]);
-			Endian_Reverse32(p[2]);
-			Endian_Reverse32(p[3]);
-			p+=4;
-			}
-		p=c->data;
-#    endif
-#  endif
-#else
-		for (sw=(SHA_BLOCK/4); sw; sw--)
-			{
-			M_c2nl(data,l); *(p++)=l;
-			M_c2nl(data,l); *(p++)=l;
-			M_c2nl(data,l); *(p++)=l;
-			M_c2nl(data,l); *(p++)=l;
-			}
-		p=c->data;
-#endif
-		sha1_block(c,p,64);
-		len-=SHA_CBLOCK;
-		}
-	ec=(int)len;
-	c->num=ec;
-	ew=(ec>>2);
-	ec&=0x03;
+/* SHA1 round functions */
+#define RND0(a, b, c, d, e, k) do {				\
+	e = ROTL(a, 5) + Ch(b, c, d) + e + k + 0x5A827999;	\
+	b = ROTL(b, 30);					\
+} while (0)
+#define RND1(a, b, c, d, e, k) do {				\
+	e = ROTL(a, 5) + (b ^ c ^ d) + e + k + 0x6ED9EBA1;	\
+	b = ROTL(b, 30);					\
+} while (0)
+#define RND2(a, b, c, d, e, k) do {				\
+	e = ROTL(a, 5) + Maj(b, c, d) + e + k + 0x8F1BBCDC;	\
+	b = ROTL(b, 30);					\
+} while (0)
+#define RND3(a, b, c, d, e, k) do {				\
+	e = ROTL(a, 5) + (b ^ c ^ d) + e + k + 0xCA62C1D6;	\
+	b = ROTL(b, 30);					\
+} while (0)
 
-	for (sw=0; sw < ew; sw++)
-		{ M_c2nl(data,l); p[sw]=l; }
-	M_c2nl_p(data,l,ec);
-	p[sw]=l;
-	}
+/* Adjusted round functions for rotating state */
+#define RND0r(S, W, i)				\
+	RND0(S[(80 - i) % 5], S[(81 - i) % 5],	\
+	     S[(82 - i) % 5], S[(83 - i) % 5],	\
+	     S[(84 - i) % 5], W[i])
+#define RND1r(S, W, i)				\
+	RND1(S[(80 - i) % 5], S[(81 - i) % 5],	\
+	     S[(82 - i) % 5], S[(83 - i) % 5],	\
+	     S[(84 - i) % 5], W[i])
+#define RND2r(S, W, i)				\
+	RND2(S[(80 - i) % 5], S[(81 - i) % 5],	\
+	     S[(82 - i) % 5], S[(83 - i) % 5],	\
+	     S[(84 - i) % 5], W[i])
+#define RND3r(S, W, i)				\
+	RND3(S[(80 - i) % 5], S[(81 - i) % 5],	\
+	     S[(82 - i) % 5], S[(83 - i) % 5],	\
+	     S[(84 - i) % 5], W[i])
 
-void SHA1_Transform(SHA_CTX *c, unsigned char *b)
-	{
-	u_int32_t p[16];
-#if BYTE_ORDER != BIG_ENDIAN
-	u_int32_t *q;
+/*
+ * SHA1 block compression function.  The 160-bit state is transformed via
+ * the 512-bit input block to produce a new state.
+ */
+static void
+SHA1_Transform(SHA1_CTX * ctx, const uint8_t block[64])
+{
+	uint32_t W[80];
+	uint32_t S[5];
 	int i;
-#endif
 
-#if BYTE_ORDER == BIG_ENDIAN || BYTE_ORDER == LITTLE_ENDIAN
-	memcpy(p,b,64);
-#if BYTE_ORDER == LITTLE_ENDIAN
-	q=p;
-	for (i=(SHA_LBLOCK/4); i; i--)
-		{
-		Endian_Reverse32(q[0]);
-		Endian_Reverse32(q[1]);
-		Endian_Reverse32(q[2]);
-		Endian_Reverse32(q[3]);
-		q+=4;
-		}
-#endif
-#else
-	q=p;
-	for (i=(SHA_LBLOCK/4); i; i--)
-		{
-		u_int32_t l;
-		c2nl(b,l); *(q++)=l;
-		c2nl(b,l); *(q++)=l;
-		c2nl(b,l); *(q++)=l;
-		c2nl(b,l); *(q++)=l; 
-		} 
-#endif
-	sha1_block(c,p,64);
+	/* 1. Prepare message schedule W. */
+	be32dec_vect(W, block, 64);
+	for (i = 16; i < 80; i++) {
+		W[i] = W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16];
+		W[i] = ROTL(W[i], 1);
 	}
 
-#ifndef SHA1_ASM
+	/* 2. Initialize working variables. */
+	S[0] = ctx->h0;
+	S[1] = ctx->h1;
+	S[2] = ctx->h2;
+	S[3] = ctx->h3;
+	S[4] = ctx->h4;
 
-void 
-sha1_block(SHA_CTX *c, const u_int32_t *W, int num)
+	/* 3. Mix. */
+	RND0r(S, W, 0);
+	RND0r(S, W, 1);
+	RND0r(S, W, 2);
+	RND0r(S, W, 3);
+	RND0r(S, W, 4);
+	RND0r(S, W, 5);
+	RND0r(S, W, 6);
+	RND0r(S, W, 7);
+	RND0r(S, W, 8);
+	RND0r(S, W, 9);
+	RND0r(S, W, 10);
+	RND0r(S, W, 11);
+	RND0r(S, W, 12);
+	RND0r(S, W, 13);
+	RND0r(S, W, 14);
+	RND0r(S, W, 15);
+	RND0r(S, W, 16);
+	RND0r(S, W, 17);
+	RND0r(S, W, 18);
+	RND0r(S, W, 19);
+	RND1r(S, W, 20);
+	RND1r(S, W, 21);
+	RND1r(S, W, 22);
+	RND1r(S, W, 23);
+	RND1r(S, W, 24);
+	RND1r(S, W, 25);
+	RND1r(S, W, 26);
+	RND1r(S, W, 27);
+	RND1r(S, W, 28);
+	RND1r(S, W, 29);
+	RND1r(S, W, 30);
+	RND1r(S, W, 31);
+	RND1r(S, W, 32);
+	RND1r(S, W, 33);
+	RND1r(S, W, 34);
+	RND1r(S, W, 35);
+	RND1r(S, W, 36);
+	RND1r(S, W, 37);
+	RND1r(S, W, 38);
+	RND1r(S, W, 39);
+	RND2r(S, W, 40);
+	RND2r(S, W, 41);
+	RND2r(S, W, 42);
+	RND2r(S, W, 43);
+	RND2r(S, W, 44);
+	RND2r(S, W, 45);
+	RND2r(S, W, 46);
+	RND2r(S, W, 47);
+	RND2r(S, W, 48);
+	RND2r(S, W, 49);
+	RND2r(S, W, 50);
+	RND2r(S, W, 51);
+	RND2r(S, W, 52);
+	RND2r(S, W, 53);
+	RND2r(S, W, 54);
+	RND2r(S, W, 55);
+	RND2r(S, W, 56);
+	RND2r(S, W, 57);
+	RND2r(S, W, 58);
+	RND2r(S, W, 59);
+	RND3r(S, W, 60);
+	RND3r(S, W, 61);
+	RND3r(S, W, 62);
+	RND3r(S, W, 63);
+	RND3r(S, W, 64);
+	RND3r(S, W, 65);
+	RND3r(S, W, 66);
+	RND3r(S, W, 67);
+	RND3r(S, W, 68);
+	RND3r(S, W, 69);
+	RND3r(S, W, 70);
+	RND3r(S, W, 71);
+	RND3r(S, W, 72);
+	RND3r(S, W, 73);
+	RND3r(S, W, 74);
+	RND3r(S, W, 75);
+	RND3r(S, W, 76);
+	RND3r(S, W, 77);
+	RND3r(S, W, 78);
+	RND3r(S, W, 79);
+
+	/* 4. Mix local working variables into global state. */
+	ctx->h0 += S[0];
+	ctx->h1 += S[1];
+	ctx->h2 += S[2];
+	ctx->h3 += S[3];
+	ctx->h4 += S[4];
+}
+
+static uint8_t PAD[64] = {
+	0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
+/* Add padding and terminating bit-count. */
+static void
+SHA1_Pad(SHA1_CTX * ctx)
 {
-	u_int32_t A,B,C,D,E,T;
-	u_int32_t X[16];
+	uint8_t len[8];
+	uint32_t r, plen;
 
-	A=c->h0;
-	B=c->h1;
-	C=c->h2;
-	D=c->h3;
-	E=c->h4;
+	/*
+	 * Convert length to a vector of bytes -- we do this now rather
+	 * than later because the length will change after we pad.
+	 */
+	be32enc(len + 0, ctx->Nh);
+	be32enc(len + 4, ctx->Nl);
 
-	for (;;)
-		{
-	BODY_00_15( 0,A,B,C,D,E,T,W);
-	BODY_00_15( 1,T,A,B,C,D,E,W);
-	BODY_00_15( 2,E,T,A,B,C,D,W);
-	BODY_00_15( 3,D,E,T,A,B,C,W);
-	BODY_00_15( 4,C,D,E,T,A,B,W);
-	BODY_00_15( 5,B,C,D,E,T,A,W);
-	BODY_00_15( 6,A,B,C,D,E,T,W);
-	BODY_00_15( 7,T,A,B,C,D,E,W);
-	BODY_00_15( 8,E,T,A,B,C,D,W);
-	BODY_00_15( 9,D,E,T,A,B,C,W);
-	BODY_00_15(10,C,D,E,T,A,B,W);
-	BODY_00_15(11,B,C,D,E,T,A,W);
-	BODY_00_15(12,A,B,C,D,E,T,W);
-	BODY_00_15(13,T,A,B,C,D,E,W);
-	BODY_00_15(14,E,T,A,B,C,D,W);
-	BODY_00_15(15,D,E,T,A,B,C,W);
-	BODY_16_19(16,C,D,E,T,A,B,W,W,W,W);
-	BODY_16_19(17,B,C,D,E,T,A,W,W,W,W);
-	BODY_16_19(18,A,B,C,D,E,T,W,W,W,W);
-	BODY_16_19(19,T,A,B,C,D,E,W,W,W,X);
+	/* Add 1--64 bytes so that the resulting length is 56 mod 64. */
+	r = (ctx->Nl >> 3) & 0x3f;
+	plen = (r < 56) ? (56 - r) : (120 - r);
+	SHA1_Update(ctx, PAD, (size_t)plen);
 
-	BODY_20_31(20,E,T,A,B,C,D,W,W,W,X);
-	BODY_20_31(21,D,E,T,A,B,C,W,W,W,X);
-	BODY_20_31(22,C,D,E,T,A,B,W,W,W,X);
-	BODY_20_31(23,B,C,D,E,T,A,W,W,W,X);
-	BODY_20_31(24,A,B,C,D,E,T,W,W,X,X);
-	BODY_20_31(25,T,A,B,C,D,E,W,W,X,X);
-	BODY_20_31(26,E,T,A,B,C,D,W,W,X,X);
-	BODY_20_31(27,D,E,T,A,B,C,W,W,X,X);
-	BODY_20_31(28,C,D,E,T,A,B,W,W,X,X);
-	BODY_20_31(29,B,C,D,E,T,A,W,W,X,X);
-	BODY_20_31(30,A,B,C,D,E,T,W,X,X,X);
-	BODY_20_31(31,T,A,B,C,D,E,W,X,X,X);
-	BODY_32_39(32,E,T,A,B,C,D,X);
-	BODY_32_39(33,D,E,T,A,B,C,X);
-	BODY_32_39(34,C,D,E,T,A,B,X);
-	BODY_32_39(35,B,C,D,E,T,A,X);
-	BODY_32_39(36,A,B,C,D,E,T,X);
-	BODY_32_39(37,T,A,B,C,D,E,X);
-	BODY_32_39(38,E,T,A,B,C,D,X);
-	BODY_32_39(39,D,E,T,A,B,C,X);
+	/* Add the terminating bit-count. */
+	SHA1_Update(ctx, len, 8);
+}
 
-	BODY_40_59(40,C,D,E,T,A,B,X);
-	BODY_40_59(41,B,C,D,E,T,A,X);
-	BODY_40_59(42,A,B,C,D,E,T,X);
-	BODY_40_59(43,T,A,B,C,D,E,X);
-	BODY_40_59(44,E,T,A,B,C,D,X);
-	BODY_40_59(45,D,E,T,A,B,C,X);
-	BODY_40_59(46,C,D,E,T,A,B,X);
-	BODY_40_59(47,B,C,D,E,T,A,X);
-	BODY_40_59(48,A,B,C,D,E,T,X);
-	BODY_40_59(49,T,A,B,C,D,E,X);
-	BODY_40_59(50,E,T,A,B,C,D,X);
-	BODY_40_59(51,D,E,T,A,B,C,X);
-	BODY_40_59(52,C,D,E,T,A,B,X);
-	BODY_40_59(53,B,C,D,E,T,A,X);
-	BODY_40_59(54,A,B,C,D,E,T,X);
-	BODY_40_59(55,T,A,B,C,D,E,X);
-	BODY_40_59(56,E,T,A,B,C,D,X);
-	BODY_40_59(57,D,E,T,A,B,C,X);
-	BODY_40_59(58,C,D,E,T,A,B,X);
-	BODY_40_59(59,B,C,D,E,T,A,X);
-
-	BODY_60_79(60,A,B,C,D,E,T,X);
-	BODY_60_79(61,T,A,B,C,D,E,X);
-	BODY_60_79(62,E,T,A,B,C,D,X);
-	BODY_60_79(63,D,E,T,A,B,C,X);
-	BODY_60_79(64,C,D,E,T,A,B,X);
-	BODY_60_79(65,B,C,D,E,T,A,X);
-	BODY_60_79(66,A,B,C,D,E,T,X);
-	BODY_60_79(67,T,A,B,C,D,E,X);
-	BODY_60_79(68,E,T,A,B,C,D,X);
-	BODY_60_79(69,D,E,T,A,B,C,X);
-	BODY_60_79(70,C,D,E,T,A,B,X);
-	BODY_60_79(71,B,C,D,E,T,A,X);
-	BODY_60_79(72,A,B,C,D,E,T,X);
-	BODY_60_79(73,T,A,B,C,D,E,X);
-	BODY_60_79(74,E,T,A,B,C,D,X);
-	BODY_60_79(75,D,E,T,A,B,C,X);
-	BODY_60_79(76,C,D,E,T,A,B,X);
-	BODY_60_79(77,B,C,D,E,T,A,X);
-	BODY_60_79(78,A,B,C,D,E,T,X);
-	BODY_60_79(79,T,A,B,C,D,E,X);
-	
-	c->h0=(c->h0+E)&0xffffffffL; 
-	c->h1=(c->h1+T)&0xffffffffL;
-	c->h2=(c->h2+A)&0xffffffffL;
-	c->h3=(c->h3+B)&0xffffffffL;
-	c->h4=(c->h4+C)&0xffffffffL;
-
-	num-=64;
-	if (num <= 0) break;
-
-	A=c->h0;
-	B=c->h1;
-	C=c->h2;
-	D=c->h3;
-	E=c->h4;
-
-	W+=16;
-		}
-	}
-#endif
-
-void SHA1_Final(unsigned char *md, SHA_CTX *c)
-	{
-	int i,j;
-	u_int32_t l;
-	u_int32_t *p;
-	static unsigned char end[4]={0x80,0x00,0x00,0x00};
-	unsigned char *cp=end;
-
-	/* c->num should definitly have room for at least one more byte. */
-	p=c->data;
-	j=c->num;
-	i=j>>2;
-#ifdef PURIFY
-	if ((j&0x03) == 0) p[i]=0;
-#endif
-	l=p[i];
-	M_p_c2nl(cp,l,j&0x03);
-	p[i]=l;
-	i++;
-	/* i is the next 'undefined word' */
-	if (c->num >= SHA_LAST_BLOCK)
-		{
-		for (; i<SHA_LBLOCK; i++)
-			p[i]=0;
-		sha1_block(c,p,64);
-		i=0;
-		}
-	for (; i<(SHA_LBLOCK-2); i++)
-		p[i]=0;
-	p[SHA_LBLOCK-2]=c->Nh;
-	p[SHA_LBLOCK-1]=c->Nl;
-#if BYTE_ORDER == LITTLE_ENDIAN && defined(SHA1_ASM)
-	Endian_Reverse32(p[SHA_LBLOCK-2]);
-	Endian_Reverse32(p[SHA_LBLOCK-1]);
-#endif
-	sha1_block(c,p,64);
-	cp=md;
-	l=c->h0; nl2c(l,cp);
-	l=c->h1; nl2c(l,cp);
-	l=c->h2; nl2c(l,cp);
-	l=c->h3; nl2c(l,cp);
-	l=c->h4; nl2c(l,cp);
-
-	/* Clear the context state */
-	explicit_bzero(&c, sizeof(c));
-	}
-
-#ifdef WEAK_REFS
-/* When building libmd, provide weak references. Note: this is not
-   activated in the context of compiling these sources for internal
-   use in libcrypt.
+/**
+ * SHA1_Init(ctx):
+ * Initialize the SHA1 context ${ctx}.
  */
-#undef SHA_Init
-__weak_reference(_libmd_SHA_Init, SHA_Init);
-#undef SHA_Update
-__weak_reference(_libmd_SHA_Update, SHA_Update);
-#undef SHA_Final
-__weak_reference(_libmd_SHA_Final, SHA_Final);
-#undef SHA_Transform
-__weak_reference(_libmd_SHA_Transform, SHA_Transform);
-#undef SHA_version
-__weak_reference(_libmd_SHA_version, SHA_version);
-#undef sha_block
-__weak_reference(_libmd_sha_block, sha_block);
-#undef SHA1_Init
-__weak_reference(_libmd_SHA1_Init, SHA1_Init);
-#undef SHA1_Update
-__weak_reference(_libmd_SHA1_Update, SHA1_Update);
-#undef SHA1_Final
-__weak_reference(_libmd_SHA1_Final, SHA1_Final);
-#undef SHA1_Transform
-__weak_reference(_libmd_SHA1_Transform, SHA1_Transform);
-#undef SHA1_version
-__weak_reference(_libmd_SHA1_version, SHA1_version);
-#undef sha1_block
-__weak_reference(_libmd_sha1_block, sha1_block);
-#endif
+void
+SHA1_Init(SHA1_CTX * ctx)
+{
+
+	/* Zero bits processed so far. */
+	ctx->Nl = ctx->Nh = 0;
+
+	/* Magic initialization constants. */
+	ctx->h0 = 0x67452301;
+	ctx->h1 = 0xEFCDAB89;
+	ctx->h2 = 0x98BADCFE;
+	ctx->h3 = 0x10325476;
+	ctx->h4 = 0xC3D2E1F0;
+}
+
+/**
+ * SHA1_Update(ctx, in, len):
+ * Input ${len} bytes from ${in} into the SHA1 context ${ctx}.
+ */
+void
+SHA1_Update(SHA1_CTX * ctx, const void * in, size_t len)
+{
+	uint32_t bitlen[2];
+	uint32_t r;
+	const uint8_t * src = in;
+
+	/* Return immediately if we have nothing to do. */
+	if (len == 0)
+		return;
+
+	/* Number of bytes left in the buffer from previous updates. */
+	r = (ctx->Nl >> 3) & 0x3f;
+
+	/* Convert the length into a number of bits. */
+	bitlen[1] = ((uint32_t)len) << 3;
+	bitlen[0] = (uint32_t)(len >> 29);
+
+	/* Update number of bits. */
+	if ((ctx->Nl += bitlen[1]) < bitlen[1])
+		ctx->Nh++;
+	ctx->Nh += bitlen[0];
+
+	/* Handle the case where we don't need to perform any transforms. */
+	if (len < 64 - r) {
+		memcpy((char *)ctx->data + r, src, len);
+		return;
+	}
+
+	/* Finish the current block. */
+	memcpy((char *)ctx->data + r, src, 64 - r);
+	SHA1_Transform(ctx, (const uint8_t *)ctx->data);
+	src += 64 - r;
+	len -= 64 - r;
+
+	/* Perform complete blocks. */
+	while (len >= 64) {
+		SHA1_Transform(ctx, src);
+		src += 64;
+		len -= 64;
+	}
+
+	/* Copy left over data into buffer. */
+	memcpy(ctx->data, src, len);
+}
+
+/**
+ * SHA1_Final(digest, ctx):
+ * Output the SHA1 hash of the data input to the context ${ctx} into the
+ * buffer ${digest}, and clear the context state.
+ */
+void
+SHA1_Final(uint8_t digest[20], SHA1_CTX * ctx)
+{
+	/* Add padding. */
+	SHA1_Pad(ctx);
+
+	/* Write the hash. */
+	be32enc(digest +  0, ctx->h0);
+	be32enc(digest +  4, ctx->h1);
+	be32enc(digest +  8, ctx->h2);
+	be32enc(digest + 12, ctx->h3);
+	be32enc(digest + 16, ctx->h4);
+}
+
+/**
+ * SHA1_Buf(in, len, digest):
+ * Compute the SHA1 hash of ${len} bytes from ${in} and write it to ${digest}.
+ */
+void
+SHA1_Buf(const void * in, size_t len, uint8_t digest[20])
+{
+	SHA1_CTX ctx;
+
+	SHA1_Init(&ctx);
+	SHA1_Update(&ctx, in, len);
+	SHA1_Final(digest, &ctx);
+}
