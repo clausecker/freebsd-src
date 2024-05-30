@@ -37,6 +37,7 @@
 
 extern void sha1block_scalar(SHA1_CTX *, const void *, size_t);
 extern void sha1block_avx2(SHA1_CTX *, const void *, size_t);
+extern void sha1block_shani(SHA1_CTX *, const void *, size_t);
 static void sha1block_avx2_wrapper(SHA1_CTX *, const void *, size_t);
 
 #define AVX2_STDEXT_NEEDED \
@@ -44,11 +45,12 @@ static void sha1block_avx2_wrapper(SHA1_CTX *, const void *, size_t);
 
 DEFINE_UIFUNC(, void, sha1block, (SHA1_CTX *, const void *, size_t))
 {
-
+	if (cpu_stdext_feature & CPUID_STDEXT_SHA)
+		return (sha1block_shani);
 	if ((cpu_stdext_feature & AVX2_STDEXT_NEEDED) == AVX2_STDEXT_NEEDED)
-		return sha1block_avx2_wrapper;
+		return (sha1block_avx2_wrapper);
 	else
-		return sha1block_scalar;
+		return (sha1block_scalar);
 }
 
 static void

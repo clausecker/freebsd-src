@@ -1732,4 +1732,121 @@ bswap_shufb_ctl:
 	.4byte		0x0c0d0e0f
 	.size		bswap_shufb_ctl, .-bswap_shufb_ctl
 
+	/*
+	 * SHA1 implementation using the Intel SHA extensions (SHANI).
+	 *
+	 * Imlemented according to the Intel white paper
+	 *
+	 * S. Gulley, V. Gopal, K. Yap, W. Feghali, J. Guilford,
+	 * G. Wolrich: "Intel SHA Extensions: new instruction supporting
+	 * the Secure Hash Algorithm on Intel® architecture processors",
+	 * July 2013.
+	 */
+	// sha1block(SHA1_CTX, buf, len)
+ENTRY(sha1block_shani)
+	and		$~63, %rdx		// round length to block-size multiple
+	lea		(%rsi, %rdx, 1), %rcx	// end pointer
+	test		%rdx, %rdx		// nothing to do?
+	je		1f			// if so, terminate immediately
+
+	movdqu		(%rdi), %xmm6		// h0, h1, h2, h3
+	pxor		%xmm7, %xmm7
+	pshufd		$0x1b, %xmm6, %xmm6	// h3, h2, h1, h0
+	pinsrd		$3, 16(%rdi), %xmm7	// h4 in the highest word of xmm7
+	movdqu		shuf_mask(%rip), %xmm4
+
+	// main loop
+0:	movdqa		%xmm6, %xmm8		// stash ABCD
+	movdqa		%xmm7, %xmm9		// stash E
+
+	// rounds 0--3
+	movdqu		0*16(%rsi), %xmm0	// load first message block
+	pshufb		%xmm4, %xmm0		// and byte-swap
+	paddd		%xmm0, %xmm7		// E += w[0]
+	movdqa		%xmm6, %xmm5		// E' = A
+	sha1rnds4	$0, %xmm7, %xmm6	// perform rounds 0--3
+
+	// rounds 4--7
+	movdqu		1*16(%rsi), %xmm1
+	pshufb		%xmm4, %xmm1
+	sha1nexte	%xmm1, %xmm5
+	movdqa		%xmm6, %xmm7
+	sha1rnds4	$0, %xmm5, %xmm6
+	sha1msg1	%xmm1, %xmm0
+
+	// rounds 8--11
+	movdqu		2*16(%rsi), %xmm2
+	pshufb		%xmm4, %xmm2
+	sha1nexte	%xmm2, %xmm7
+	movdqa		%xmm6, %xmm5
+	sha1rnds4	$0, %xmm7, %xmm6
+	sha1msg1	%xmm2, %xmm1
+	pxor		%xmm2, %xmm0
+
+.macro	midround	msg3, msg0, msg1, msg2, e1, e0, k
+	sha1nexte	\msg3, \e1
+	movdqa		%xmm6, \e0
+	sha1msg2	\msg3, \msg0
+	sha1rnds4	$\k, \e1, %xmm6
+	sha1msg1	\msg3, \msg2
+	pxor		\msg3, \msg1
+.endm
+
+	movdqu		3*16(%rsi), %xmm3	// load third message block
+	pshufb		%xmm4, %xmm3
+
+	add		$4*16, %rsi
+
+	midround	%xmm3, %xmm0, %xmm1, %xmm2, %xmm5, %xmm7, 0	// 12--15
+	midround	%xmm0, %xmm1, %xmm2, %xmm3, %xmm7, %xmm5, 0	// 16--19
+	midround	%xmm1, %xmm2, %xmm3, %xmm0, %xmm5, %xmm7, 1	// 20--23
+	midround	%xmm2, %xmm3, %xmm0, %xmm1, %xmm7, %xmm5, 1	// 24--27
+	midround	%xmm3, %xmm0, %xmm1, %xmm2, %xmm5, %xmm7, 1	// 28--31
+	midround	%xmm0, %xmm1, %xmm2, %xmm3, %xmm7, %xmm5, 1	// 32--35
+	midround	%xmm1, %xmm2, %xmm3, %xmm0, %xmm5, %xmm7, 1	// 36--39
+	midround	%xmm2, %xmm3, %xmm0, %xmm1, %xmm7, %xmm5, 2	// 40--43
+	midround	%xmm3, %xmm0, %xmm1, %xmm2, %xmm5, %xmm7, 2	// 44--47
+	midround	%xmm0, %xmm1, %xmm2, %xmm3, %xmm7, %xmm5, 2	// 48--51
+	midround	%xmm1, %xmm2, %xmm3, %xmm0, %xmm5, %xmm7, 2	// 52--55
+	midround	%xmm2, %xmm3, %xmm0, %xmm1, %xmm7, %xmm5, 2	// 56--59
+	midround	%xmm3, %xmm0, %xmm1, %xmm2, %xmm5, %xmm7, 3	// 60--63
+	midround	%xmm0, %xmm1, %xmm2, %xmm3, %xmm7, %xmm5, 3	// 64--67
+
+	// rounds 68--71
+	sha1nexte	%xmm1, %xmm5
+	movdqa		%xmm6, %xmm7
+	sha1msg2	%xmm1, %xmm2
+	sha1rnds4	$3, %xmm5, %xmm6
+	pxor		%xmm1, %xmm3
+
+	// rounds 72--75
+	sha1nexte	%xmm2, %xmm7
+	movdqa		%xmm6, %xmm5
+	sha1msg2	%xmm2, %xmm3
+	sha1rnds4	$3, %xmm7, %xmm6
+
+	// rounds 76--79
+	sha1nexte	%xmm3, %xmm5
+	movdqa		%xmm6, %xmm7
+	sha1rnds4	$3, %xmm5, %xmm6
+
+	sha1nexte	%xmm9, %xmm7		// add saved E
+	paddd		%xmm8, %xmm6		// add saved ABCD
+
+	cmp		%rsi, %rcx		// end reached?
+	jne		0b
+
+	pshufd		$0x1b, %xmm6, %xmm6	// restore order of h0--h3
+	movdqu		%xmm6, (%rdi)		// write h0--h3
+	pextrd		$3, %xmm7, 16(%rdi)	// write h4
+1:	ret
+END(sha1block_shani)
+
+	.section	.rodata
+	.balign		16
+shuf_mask:
+	.8byte		0x08090a0b0c0d0e0f
+	.8byte		0x0001020304050607
+	.size		shuf_mask, .-shuf_mask
+
 	.section .note.GNU-stack,"",%progbits
