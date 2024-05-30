@@ -35,8 +35,9 @@
 #include <sha.h>
 #include <x86/ifunc.h>
 
-extern void sha1block_scalar(SHA1_CTX *, const void *, size_t);
-extern void sha1block_avx2(SHA1_CTX *, const void *, size_t);
+extern void _libmd_sha1block_scalar(SHA1_CTX *, const void *, size_t);
+extern void _libmd_sha1block_avx2(SHA1_CTX *, const void *, size_t);
+extern void _libmd_sha1block_shani(SHA1_CTX *, const void *, size_t);
 static void sha1block_avx2_wrapper(SHA1_CTX *, const void *, size_t);
 
 #define AVX2_STDEXT_NEEDED \
@@ -44,11 +45,12 @@ static void sha1block_avx2_wrapper(SHA1_CTX *, const void *, size_t);
 
 DEFINE_UIFUNC(, void, sha1_block, (SHA1_CTX *, const void *, size_t))
 {
-
+	if (cpu_stdext_feature & CPUID_STDEXT_SHA)
+		return (_libmd_sha1block_shani);
 	if ((cpu_stdext_feature & AVX2_STDEXT_NEEDED) == AVX2_STDEXT_NEEDED)
-		return sha1block_avx2_wrapper;
+		return (sha1block_avx2_wrapper);
 	else
-		return sha1block_scalar;
+		return (_libmd_sha1block_scalar);
 }
 
 static void
@@ -68,8 +70,8 @@ sha1block_avx2_wrapper(SHA1_CTX *c, const void *data, size_t len)
 		if (safe_len % 128 != 0)
 			safe_len -= 64;
 
-		sha1block_avx2(c, data, safe_len);
-		sha1block_scalar(c, data + safe_len, len - safe_len);
+		_libmd_sha1block_avx2(c, data, safe_len);
+		_libmd_sha1block_scalar(c, data + safe_len, len - safe_len);
 	} else
-		sha1block_scalar(c, data, len);
+		_libmd_sha1block_scalar(c, data, len);
 }
