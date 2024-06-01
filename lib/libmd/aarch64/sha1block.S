@@ -1,34 +1,12 @@
 /*-
- * Copyright (c) 2017 The Go Authors. All rights reserved.
  * Copyright (c) 2024 Robert Clausecker <fuz@freebsd.org>
  *
- * Adapted from Go's crypto/sha1/sha1block_arm64.s.
+ * SPDX-License-Identifier: BSD-2-Clause
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *
- *   * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *   * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * sha1block_sha1 implementation based on sha1-arm.c,
+ * written and placed in public domain by Jeffrey Walton
+ * based on code from ARM, and by Johannes Schneiders, Skip
+ * Hovsmith and Barry O'Rourke for the mbedTLS project.
  */
 
 #include <machine/asm.h>
@@ -42,7 +20,7 @@
  */
 
 	// sha1block(SHA1_CTX, buf, len)
-ENTRY(sha1block)
+ENTRY(sha1block_scalar)
 ctx	.req	x0
 buf	.req	x1
 len	.req	x2
@@ -304,6 +282,209 @@ w_15	.req	w27
 	add	sp, sp, #24+9*8
 
 1:	ret
-END(sha1block)
+END(sha1block_scalar)
+
+/*
+ * SHA1 implementation using the SHA1 instruction set extension.
+ */
+
+	.arch_extension sha2
+
+	// sha1block(SHA1_CTX, buf, len)
+ENTRY(sha1block_sha1)
+	/* ctx, buf, len: same as for sha1block_scalar */
+kaddr	.req	x3
+abcd	.req	v0
+abcd_q	.req	q0			// alias for use with scalar instructions
+abcd_s	.req	s0
+e0	.req	s1
+e0_v	.req	v1
+e1	.req	s2
+abcd_saved .req	v3
+e0_saved .req	v4
+tmp0	.req	v5
+tmp1	.req	v6
+msg0	.req	v16
+msg1	.req	v17
+msg2	.req	v18
+msg3	.req	v19
+k0	.req	v20
+k1	.req	v21
+k2	.req	v22
+k3	.req	v23
+
+	ands	len, len, #~63		// take length in multiples of block length
+	beq	1f			// bail out if input empty
+
+	ldr	abcd_q, [ctx, #0]
+	ldr	e0, [ctx, #16]
+
+	adrp	kaddr, k1234
+	add	kaddr, kaddr, #:lo12:k1234
+	ld4r	{k0.4s, k1.4s, k2.4s, k3.4s}, [kaddr]
+
+0:	mov	abcd_saved.16b, abcd.16b
+	mov	e0_saved.16b, e0_v.16b
+
+	ld1	{msg0.4s, msg1.4s, msg2.4s, msg3.4s}, [buf], #64
+	rev32	msg0.16b, msg0.16b
+	rev32	msg1.16b, msg1.16b
+	rev32	msg2.16b, msg2.16b
+	rev32	msg3.16b, msg3.16b
+
+	add	tmp0.4s, msg0.4s, k0.4s
+	add	tmp1.4s, msg1.4s, k0.4s
+
+	/* rounds 0--3 */
+	sha1h	e1, abcd_s
+	sha1c	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg2.4s, k0.4s
+	sha1su0	msg0.4s, msg1.4s, msg2.4s
+
+	/* rounds 4--7 */
+	sha1h	e0, abcd_s
+	sha1c	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg3.4s, k0.4s
+	sha1su1	msg0.4s, msg3.4s
+	sha1su0	msg1.4s, msg2.4s, msg3.4s
+
+	/* rounds 8--11 */
+	sha1h	e1, abcd_s
+	sha1c	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg0.4s, k0.4s
+	sha1su1	msg1.4s, msg0.4s
+	sha1su0	msg2.4s, msg3.4s, msg0.4s
+
+	/* rounds 12--15 */
+	sha1h	e0, abcd_s
+	sha1c	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg1.4s, k1.4s
+	sha1su1	msg2.4s, msg1.4s
+	sha1su0	msg3.4s, msg0.4s, msg1.4s
+
+	/* rounds 16--19 */
+	sha1h	e1, abcd_s
+	sha1c	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg2.4s, k1.4s
+	sha1su1	msg3.4s, msg2.4s
+	sha1su0	msg0.4s, msg1.4s, msg2.4s
+
+	/* rounds 20--23 */
+	sha1h	e0, abcd_s
+	sha1p	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg3.4s, k1.4s
+	sha1su1	msg0.4s, msg3.4s
+	sha1su0	msg1.4s, msg2.4s, msg3.4s
+
+	/* rounds 24--27 */
+	sha1h	e1, abcd_s
+	sha1p	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg0.4s, k1.4s
+	sha1su1	msg1.4s, msg0.4s
+	sha1su0	msg2.4s, msg3.4s, msg0.4s
+
+	/* rounds 28--31 */
+	sha1h	e0, abcd_s
+	sha1p	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg1.4s, k1.4s
+	sha1su1	msg2.4s, msg1.4s
+	sha1su0	msg3.4s, msg0.4s, msg1.4s
+
+	/* rounds 32--35 */
+	sha1h	e1, abcd_s
+	sha1p	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg2.4s, k2.4s
+	sha1su1	msg3.4s, msg2.4s
+	sha1su0	msg0.4s, msg1.4s, msg2.4s
+
+	/* rounds 36--39 */
+	sha1h	e0, abcd_s
+	sha1p	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg3.4s, k2.4s
+	sha1su1	msg0.4s, msg3.4s
+	sha1su0	msg1.4s, msg2.4s, msg3.4s
+
+	/* rounds 40--43 */
+	sha1h	e1, abcd_s
+	sha1m	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg0.4s, k2.4s
+	sha1su1	msg1.4s, msg0.4s
+	sha1su0	msg2.4s, msg3.4s, msg0.4s
+
+	/* rounds 44--47 */
+	sha1h	e0, abcd_s
+	sha1m	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg1.4s, k2.4s
+	sha1su1	msg2.4s, msg1.4s
+	sha1su0	msg3.4s, msg0.4s, msg1.4s
+
+	/* rounds 48--51 */
+	sha1h	e1, abcd_s
+	sha1m	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg2.4s, k2.4s
+	sha1su1	msg3.4s, msg2.4s
+	sha1su0	msg0.4s, msg1.4s, msg2.4s
+
+	/* rounds 52--55 */
+	sha1h	e0, abcd_s
+	sha1m	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg3.4s, k3.4s
+	sha1su1	msg0.4s, msg3.4s
+	sha1su0	msg1.4s, msg2.4s, msg3.4s
+
+	/* rounds 56--59 */
+	sha1h	e1, abcd_s
+	sha1m	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg0.4s, k3.4s
+	sha1su1	msg1.4s, msg0.4s
+	sha1su0	msg2.4s, msg3.4s, msg0.4s
+
+	/* rounds 60--63 */
+	sha1h	e0, abcd_s
+	sha1p	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg1.4s, k3.4s
+	sha1su1	msg2.4s, msg1.4s
+	sha1su0	msg3.4s, msg0.4s, msg1.4s
+
+	/* rounds 64--67 */
+	sha1h	e1, abcd_s
+	sha1p	abcd_q, e0, tmp0.4s
+	add	tmp0.4s, msg2.4s, k3.4s
+	sha1su1	msg3.4s, msg2.4s
+	sha1su0	msg0.4s, msg1.4s, msg2.4s
+
+	/* rounds 68--71 */
+	sha1h	e0, abcd_s
+	sha1p	abcd_q, e1, tmp1.4s
+	add	tmp1.4s, msg3.4s, k3.4s
+	sha1su1	msg0.4s, msg3.4s
+
+	/* rounds 72--75 */
+	sha1h	e1, abcd_s
+	sha1p	abcd_q, e0, tmp0.4s
+
+	/* rounds 76--79 */
+	sha1h	e0, abcd_s
+	sha1p	abcd_q, e1, tmp1.4s
+
+	add	e0_v.4s, e0_v.4s, e0_saved.4s
+	add	abcd.4s, abcd.4s, abcd_saved.4s
+
+	subs	len, len, #64
+	bhi	0b
+
+	str	abcd_q, [ctx, #0]
+	str	e0, [ctx, #16]
+
+1:	ret
+END(sha1block_sha1)
+
+	.section .rodata
+	.balign	16
+k1234:	.4byte	0x5a827999
+	.4byte	0x6ed9eba1
+	.4byte	0x8f1bbcdc
+	.4byte	0xca62c1d6
+	.size	k1234, .-k1234
 
 	.section .note.GNU-stack,"",%progbits
