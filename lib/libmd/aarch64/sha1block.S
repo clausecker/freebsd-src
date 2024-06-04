@@ -15,7 +15,7 @@
  * Scalar SHA1 implementation.
  *
  * Due to the ample register file available on AArch64, the w array is
- * kept entirely in registers.  The saved a-e variabled are instead kept
+ * kept entirely in registers.  The saved a-e variables are instead kept
  * in memory as we don't have that much memory.
  */
 
