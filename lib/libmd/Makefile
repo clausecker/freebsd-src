@@ -120,10 +120,14 @@ CFLAGS+= -DSHA1_ASM
 .if exists(${MACHINE_ARCH}/sha1dispatch.c)
 SRCS+=  sha1dispatch.c
 .endif
+.if exists(${MACHINE_ARCH}/md5block.S)
+SRCS+=	md5block.S
+CFLAGS+= -DMD5_ASM
 .endif
 .if exists(${MACHINE_ARCH}/rmd160.S)
 SRCS+=	rmd160.S
 CFLAGS+= -DRMD160_ASM
+.endif
 .endif
 .if exists(${MACHINE_ARCH}/skein_block_asm.S)
 # Fully unroll all loops in the assembly optimized version
