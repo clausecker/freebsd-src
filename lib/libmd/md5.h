@@ -18,9 +18,6 @@
 #ifndef MD5Final
 #define MD5Final	_libmd_MD5Final
 #endif
-#ifndef MD5Transform
-#define MD5Transform	_libmd_MD5Transform
-#endif
 #ifndef MD5End
 #define MD5End		_libmd_MD5End
 #endif
