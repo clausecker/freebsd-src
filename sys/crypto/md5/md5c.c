@@ -19,6 +19,7 @@
 #include <string.h>
 #endif /* defined(_KERNEL) */
 
+#define md5block _libmd_md5block
 #ifdef MD5_ASM
 extern void	md5block(MD5_CTX *, const void *, size_t);
 #else
