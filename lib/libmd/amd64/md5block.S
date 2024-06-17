@@ -49,7 +49,7 @@ ENTRY(md5block_baseline)
 .endm
 
 	// do 4 rounds
-.macro	rounds	f, p, q, s0, s1, s2, s3, k0, k1, k2, k3, k4
+.macro	rounds	f, p, q, s0, s1, s2, s3, k0, k1, k2, k3
 	round	%eax, %ebx, %ecx, %edx, \f, \k0, \p*0+\q, \s0
 	round	%edx, %eax, %ebx, %ecx, \f, \k1, \p*1+\q, \s1
 	round	%ecx, %edx, %eax, %ebx, \f, \k2, \p*2+\q, \s2
