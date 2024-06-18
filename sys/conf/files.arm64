@@ -171,6 +171,7 @@ ghashv8-armx.o					optional armv8crypto	\
 	clean		"ghashv8-armx.o"
 
 crypto/des/des_enc.c				optional netsmb
+crypto/md5/md5block_aarch64.S			standard
 crypto/openssl/ossl_aarch64.c			optional ossl
 crypto/openssl/aarch64/chacha-armv8.S		optional ossl		\
 	compile-with	"${CC} -c ${CFLAGS:N-mgeneral-regs-only} -I$S/crypto/openssl ${WERROR} ${.IMPSRC}"
