@@ -10,5 +10,8 @@ USE_ASM_SOURCES?= 1
 .if exists(md5block_${MACHINE_ARCH}.S)
 SRCS+=	md5block_${MACHINE_ARCH}.S
 CFLAGS+= -DMD5_ASM
+.if exists(md5dispatch_${MACHINE_ARCH}.c)
+SRCS+=	md5dispatch_${MACHINE_ARCH}.c
+.endif
 .endif
 .endif

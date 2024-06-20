@@ -99,6 +99,7 @@ cddl/dev/dtrace/amd64/dtrace_subr.c			optional dtrace compile-with "${DTRACE_C}"
 crypto/aesni/aeskeys_amd64.S	optional aesni
 crypto/des/des_enc.c		optional	netsmb
 crypto/md5/md5block_amd64.S		standard
+crypto/md5/md5dispatch_amd64.c		standard
 crypto/openssl/amd64/aes-gcm-avx512.S	optional ossl
 crypto/openssl/amd64/aesni-x86_64.S	optional ossl
 crypto/openssl/amd64/aesni-gcm-x86_64.S	optional ossl
