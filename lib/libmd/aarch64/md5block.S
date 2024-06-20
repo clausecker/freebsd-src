@@ -48,7 +48,7 @@ d_	.req	m5
 	movz	k, #\k & 0xffff
 	movk	k, #\k >> 16, lsl #16
 //	ldr	k, =\k
-	add	k, k, \m		// k[i] + m[g] + a
+	add	k, k, \m		// k[i] + m[g]
 .elseif 0x100000000 - \k > 0x0000ffff
 	sub	k, \m, #(0x100000000 - \k) & 0xfff000
 	sub	k, k, #(0x100000000 - \k) & 0xfff
@@ -56,7 +56,7 @@ d_	.req	m5
 	movz	k, #0x100000000 - \k
 	sub	k, \m, k
 .endif
-	add	\a, \a, k		// k[i] + m[g]
+	add	\a, \a, k		// k[i] + m[g] + a
 	add	\a, \a, f		// k[i] + m[g] + a + f
 	ror	\a, \a, #32-\s
 	add	\a, \a, \b
@@ -74,6 +74,30 @@ d_	.req	m5
 	bic	tmp, \c, \d
 	and	\f, \b, \d
 	orr	\f, \f, tmp
+.endm
+
+	// special cased round 1 function
+	// f1 = d ? b : c = (d & b) + (~d & c)
+.macro	round1	a, b, c, d, k, m, s
+	bic	tmp, \c, \d		// ~d & c
+.if 0x100000000 - \k > 0x00ffffff
+	movz	k, #\k & 0xffff
+	movk	k, #\k >> 16, lsl #16
+//	ldr	k, =\k
+	add	k, k, \m		// k[i] + m[g]
+.elseif 0x100000000 - \k > 0x0000ffff
+	sub	k, \m, #(0x100000000 - \k) & 0xfff000
+	sub	k, k, #(0x100000000 - \k) & 0xfff
+.else
+	movz	k, #0x100000000 - \k
+	sub	k, \m, k
+.endif
+	add	\a, \a, k		// k[i] + m[g] + a
+	and	f, \b, \d		// d & b
+	add	\a, \a, tmp		// k[i] + m[g] + a + (~d & c)
+	add	\a, \a, f		// k[i] + m[g] + a + (~d & c) + (d & b)
+	ror	\a, \a, #32-\s
+	add	\a, \a, \b
 .endm
 
 	// f = b ^ c ^ d
@@ -102,7 +126,10 @@ d_	.req	m5
 .endm
 
 .macro	rounds1	m0, m1, m2, m3, k0, k1, k2, k3
-	rounds	f1, \m0, \m1, \m2, \m3, 5, 9, 14, 20, \k0, \k1, \k2, \k3
+	round1	a, b, c, d, \k0, \m0,  5
+	round1	d, a, b, c, \k1, \m1,  9
+	round1	c, d, a, b, \k2, \m2, 14
+	round1	b, c, d, a, \k3, \m3, 20
 .endm
 
 .macro	rounds2	m0, m1, m2, m3, k0, k1, k2, k3
