@@ -1,4 +1,3 @@
-
 SHLIBDIR?= /lib
 
 .include <src.opts.mk>
@@ -99,12 +98,12 @@ sys/md5.h: ${SRCTOP}/sys/${.TARGET} .NOMETA
 # in which case:
 #   * macros are used to rename symbols to libcrypt internal names
 #   * no weak aliases are generated
-CFLAGS+= -I${.CURDIR} -I${SRCTOP}/sys/crypto/sha2
+CFLAGS+= -I${.CURDIR}
 CFLAGS+= -I${SRCTOP}/sys/crypto/skein
 CFLAGS+= -DWEAK_REFS
 # unroll the 256 and 512 loops, half unroll the 1024
 CFLAGS.skein_block.c+= -DSKEIN_LOOP=995
-.PATH: ${.CURDIR}/${MACHINE_ARCH} ${SRCTOP}/sys/crypto/sha2
+.PATH: ${.CURDIR}/${MACHINE_ARCH}
 .PATH: ${SRCTOP}/sys/crypto/skein ${SRCTOP}/sys/crypto/skein/${MACHINE_ARCH}
 
 USE_ASM_SOURCES?=1
@@ -114,6 +113,11 @@ USE_ASM_SOURCES:=0
 .endif
 
 .if ${USE_ASM_SOURCES} != 0
+.if exists(${MACHINE_ARCH}/sha256block.S)
+SRCS+=	sha256block.S
+CFLAGS+= -DSHA256_ASM
+.endif
+
 .if exists(${MACHINE_ARCH}/sha1block.S)
 SRCS+=	sha1block.S
 CFLAGS+= -DSHA1_ASM
@@ -149,9 +153,6 @@ skein_block.o skein_block.pico: Makefile
 ACFLAGS+= -DELF -Wa,--noexecstack
 .endif
 .if ${MACHINE_CPUARCH} == "aarch64"
-SRCS+=	sha256c_arm64.c
-CFLAGS+= -DARM64_SHA2
-CFLAGS.sha256c_arm64.c+= -march=armv8-a+crypto
 .if ${COMPILER_FEATURES:Maarch64-sha512}
 SRCS+=	sha512c_arm64.c
 CFLAGS+= -DARM64_SHA512
