@@ -83,22 +83,24 @@ ARCHENTRY(__memccpy, baseline)
 	pshufd		$0, %xmm4, %xmm4	# cccc -> cccccccccccccccc
 	and		$~0xf, %rsi
 	movdqa		%xmm4, %xmm1
-	pcmpeqb		(%rsi), %xmm1		# NUL found in head?
+	pcmpeqb		(%rsi), %xmm1		# c found in head?
 	mov		$-1, %r8d
 	and		$0xf, %ecx
 	shl		%cl, %r8d		# mask of bytes in the string
 	pmovmskb	%xmm1, %eax
+	lea		(%rcx, %rdx), %r11	# dist. from alignment boundary to buffer end
+	lea		0x10000(%rax), %r10d	# match mask with match induced behind buf
+	cmp		$16, %r11
+	cmovb		%r10d, %eax		# induce that match if string ends early
 	and		%r8d, %eax
 	jnz		.Lhead_nul
 
 	movdqa		16(%rsi), %xmm3		# load second string chunk
 	movdqu		(%r9), %xmm2		# load unaligned string head
-	mov		$32, %r8d
-	sub		%ecx, %r8d		# head length + length of second chunk
 	movdqa		%xmm4, %xmm1
 	pcmpeqb		%xmm3, %xmm1		# NUL found in second chunk?
 
-	sub		%r8, %rdx		# enough space left for the second chunk?
+	cmp		$32, %r11
 	jb		.Lhead_buf_end
 
 	/* process second chunk */
@@ -111,10 +113,11 @@ ARCHENTRY(__memccpy, baseline)
 	movdqa		%xmm4, %xmm1
 	movdqu		%xmm2, (%rdi)		# deposit head into buffer
 	sub		%rcx, %rdi		# adjust RDI to correspond to RSI
+	mov		%r11, %rdx
 	movdqu		%xmm3, 16(%rdi)		# deposit second chunk
 	sub		%rsi, %rdi		# express RDI as distance from RSI
 	add		$32, %rsi		# advance RSI past first two chunks
-	sub		$16, %rdx		# enough left for another round?
+	sub		$48, %rdx		# enough left for another round?
 	jb		1f
 
 	/* main loop unrolled twice */
@@ -174,10 +177,9 @@ ARCHENTRY(__memccpy, baseline)
 
 .Lhead_buf_end:
 	pmovmskb	%xmm1, %r8d
-	add		$32, %edx		# restore edx to (len-1) + ecx
 	shl		$16, %r8d		# place 2nd chunk NUL mask into bits 16--31
 	mov		%r8d, %r10d
-	bts		%rdx, %r8		# treat end of buffer as if terminator present
+	bts		%r11, %r8		# treat end of buffer as if terminator present
 	xor		%eax, %eax		# return value if terminator not found
 	tzcnt		%r8, %rdx		# find string/buffer len from alignment boundary
 	lea		1(%rdi, %rdx, 1), %r8	# return value if terminator found + rcx
@@ -188,7 +190,6 @@ ARCHENTRY(__memccpy, baseline)
 	jmp		.L0132
 
 .Lsecond_nul:
-	add		%r8, %rdx		# restore buffer length
 	tzcnt		%eax, %r8d		# where is the NUL byte?
 	lea		-16(%rcx), %eax
 	sub		%eax, %r8d		# string length
