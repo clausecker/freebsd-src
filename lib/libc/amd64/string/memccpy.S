@@ -84,12 +84,14 @@ ARCHENTRY(__memccpy, baseline)
 	and		$~0xf, %rsi
 	movdqa		%xmm4, %xmm1
 	pcmpeqb		(%rsi), %xmm1		# c found in head?
-	mov		$-1, %r8d
 	and		$0xf, %ecx
-	shl		%cl, %r8d		# mask of bytes in the string
+	mov		%rdx, %r11
+	mov		$-1, %r8
+	add		%rcx, %r11		# dist. from alignment boundary to buffer end
+	cmovc		%r8, %r11		# saturate to SIZE_MAX on overflow
 	pmovmskb	%xmm1, %eax
-	lea		(%rcx, %rdx), %r11	# dist. from alignment boundary to buffer end
 	lea		0x10000(%rax), %r10d	# match mask with match induced behind buf
+	shl		%cl, %r8d		# mask of bytes in the string
 	cmp		$16, %r11
 	cmovb		%r10d, %eax		# induce that match if string ends early
 	and		%r8d, %eax
