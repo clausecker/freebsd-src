@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 The FreeBSD Foundation
+ * Copyright (c) 2023, 2024 The FreeBSD Foundation
  *
  * This software was developed by Robert Clausecker <fuz@FreeBSD.org>
  * under sponsorship from the FreeBSD Foundation.
@@ -85,24 +85,32 @@ ARCHENTRY(__memccpy, baseline)
 	movdqa		%xmm4, %xmm1
 	pcmpeqb		(%rsi), %xmm1		# c found in head?
 	and		$0xf, %ecx
-	mov		%rdx, %r11
-	mov		$-1, %r8
-	add		%rcx, %r11		# dist. from alignment boundary to buffer end
-	cmovc		%r8, %r11		# saturate to SIZE_MAX on overflow
-	pmovmskb	%xmm1, %eax
-	lea		0x10000(%rax), %r10d	# match mask with match induced behind buf
-	shl		%cl, %r8d		# mask of bytes in the string
-	cmp		$16, %r11
-	cmovb		%r10d, %eax		# induce that match if string ends early
+	mov		$-1, %eax
+	pmovmskb	%xmm1, %r8d
+	lea		-16(%rcx), %r11
+	lea		0x10000(%r8), %r10d	# match mask with match induced behind buf
+	shl		%cl, %eax		# mask of bytes in the string
+	add		%rdx, %r11		# distance from alignment boundary - 16
+	cmovnc		%r10d, %r8d		# induce that match if string ends early
 	and		%r8d, %eax
-	jnz		.Lhead_nul
+	jz		0f			# match (or induced match) found?
 
-	movdqa		16(%rsi), %xmm3		# load second string chunk
+	/* match or end of buffer in first chunk */
+	tzcnt		%eax, %r8d		# where is the NUL byte?
+	sub		%ecx, %r8d		# ... from the beginning of the string?
+	lea		1(%rdi, %r8, 1), %rax	# return value if NUL before end of buffer
+	xor		%ecx, %ecx		# return value if not
+	cmp		%r8, %rdx		# is the string shorter than the buffer?
+	cmova		%r8, %rdx		# copy only min(buflen, srclen) bytes
+	cmovb		%rcx, %rax		# return NUL if buffer ended before string
+	jmp		.L0116
+
+0:	movdqa		16(%rsi), %xmm3		# load second string chunk
 	movdqu		(%r9), %xmm2		# load unaligned string head
 	movdqa		%xmm4, %xmm1
 	pcmpeqb		%xmm3, %xmm1		# NUL found in second chunk?
 
-	cmp		$32, %r11
+	cmp		$16, %r11
 	jb		.Lhead_buf_end
 
 	/* process second chunk */
@@ -119,7 +127,7 @@ ARCHENTRY(__memccpy, baseline)
 	movdqu		%xmm3, 16(%rdi)		# deposit second chunk
 	sub		%rsi, %rdi		# express RDI as distance from RSI
 	add		$32, %rsi		# advance RSI past first two chunks
-	sub		$48, %rdx		# enough left for another round?
+	sub		$32, %rdx		# enough left for another round?
 	jb		1f
 
 	/* main loop unrolled twice */
@@ -177,24 +185,26 @@ ARCHENTRY(__memccpy, baseline)
 	lea		1(%rdi, %rax, 1), %rax	# compute return value
 	ret
 
+	ALIGN_TEXT
 .Lhead_buf_end:
 	pmovmskb	%xmm1, %r8d
-	shl		$16, %r8d		# place 2nd chunk NUL mask into bits 16--31
 	mov		%r8d, %r10d
 	bts		%r11, %r8		# treat end of buffer as if terminator present
 	xor		%eax, %eax		# return value if terminator not found
 	tzcnt		%r8, %rdx		# find string/buffer len from alignment boundary
-	lea		1(%rdi, %rdx, 1), %r8	# return value if terminator found + rcx
-	sub		%rcx, %r8		# subtract rcx
+	lea		17(%rdi, %rdx, 1), %r8	# return value if terminator found + alignm. offset
+	sub		%rcx, %r8		# remove alignment offset
 	bt		%rdx, %r10		# was the terminator present?
 	cmovc		%r8, %rax		# if yes, return pointer, else NULL
-	sub		%ecx, %edx		# find actual string/buffer len
+	sub		%ecx, %edx		# restore actual string/buffer len
+	add		$16, %edx
 	jmp		.L0132
 
+	ALIGN_TEXT
 .Lsecond_nul:
 	tzcnt		%eax, %r8d		# where is the NUL byte?
-	lea		-16(%rcx), %eax
-	sub		%eax, %r8d		# string length
+	sub		$16, %ecx
+	sub		%ecx, %r8d		# string length
 	lea		1(%rdi, %r8, 1), %rax	# return value if NUL before end of buffer
 	xor		%ecx, %ecx		# return value if not
 	cmp		%r8, %rdx		# is the string shorter than the buffer?
@@ -210,16 +220,8 @@ ARCHENTRY(__memccpy, baseline)
 	movdqu		%xmm1, -15(%rdi, %rdx, 1)
 	ret
 
-.Lhead_nul:
-	tzcnt		%eax, %r8d		# where is the NUL byte?
-	sub		%ecx, %r8d		# ... from the beginning of the string?
-	lea		1(%rdi, %r8, 1), %rax	# return value if NUL before end of buffer
-	xor		%ecx, %ecx		# return value if not
-	cmp		%r8, %rdx		# is the string shorter than the buffer?
-	cmova		%r8, %rdx		# copy only min(buflen, srclen) bytes
-	cmovb		%rcx, %rax		# return NUL if buffer ended before string
-
 	/* process strings of 1--16 bytes (rdx: min(buflen, srclen), rax: srclen) */
+	ALIGN_TEXT
 .L0116:	cmp		$8, %rdx		# at least 9 bytes to copy?
 	jae		.L0916
 
