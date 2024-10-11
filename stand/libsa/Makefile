@@ -189,9 +189,9 @@ SRCS+=	g_eli_hmac.c pkcs5v2.c
 .PATH: ${SYSDIR}/crypto/sha2
 SRCS+=		sha256c.c sha512c.c
 
-# md5 from the kernel
-.PATH: ${SYSDIR}/kern
-SRCS+=		md5c.c
+# md5 from the kernel, but avoid SIMD implementations
+USE_ASM_SOURCES=0
+.include "${SRCTOP}/lib/libmd/Makefile.md5.inc"
 
 .if ${DO32:U0} == 0
 MAN=libsa.3

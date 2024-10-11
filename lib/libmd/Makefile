@@ -6,7 +6,7 @@ SHLIBDIR?= /lib
 PACKAGE=	runtime
 LIB=	md
 SHLIB_MAJOR= 7
-SRCS=	md4c.c md5c.c md4hl.c md5hl.c \
+SRCS=	md4c.c md4hl.c md5hl.c \
 	rmd160c.c rmd160hl.c \
 	sha0c.c sha0hl.c sha1c.c sha1hl.c \
 	sha224hl.c sha256c.c sha256hl.c \
@@ -149,6 +149,8 @@ CFLAGS.sha512c_arm64.c+= -march=armv8.2-a+sha3
 .endif # aarch64-sha512
 .endif
 .endif # ${USE_ASM_SOURCES} != 0
+
+.include "Makefile.md5.inc"
 
 md4hl.c: mdXhl.c
 	(echo '#define LENGTH 16'; \
