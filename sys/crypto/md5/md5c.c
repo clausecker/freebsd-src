@@ -17,6 +17,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
 #endif /* defined(_KERNEL) */
 
 #define md5block _libmd_md5block
@@ -101,10 +102,13 @@ void
 MD5Final(unsigned char md[16], MD5_CTX *ctx)
 {
 	MD5Pad(ctx);
+
 	le32enc(md +  0, ctx->state[0]);
 	le32enc(md +  4, ctx->state[1]);
 	le32enc(md +  8, ctx->state[2]);
 	le32enc(md + 12, ctx->state[3]);
+
+	explicit_bzero(ctx, sizeof(ctx));
 }
 
 #ifndef MD5_ASM
