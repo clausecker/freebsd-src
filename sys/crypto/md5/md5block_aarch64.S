@@ -7,7 +7,98 @@
 #include <sys/elf_common.h>
 #include <machine/asm.h>
 
-	// md5block(MD5_CTX, buf, len)
+.macro	round	a, b, c, d, f, k, m, s
+	\f	f, \b, \c, \d
+.if 0x100000000 - \k > 0x00ffffff
+	movz	k, #\k & 0xffff
+	movk	k, #\k >> 16, lsl #16
+	add	k, k, \m		// k[i] + m[g]
+.elseif 0x100000000 - \k > 0x0000ffff
+	sub	k, \m, #(0x100000000 - \k) & 0xfff000
+	sub	k, k, #(0x100000000 - \k) & 0xfff
+.else
+	movz	k, #0x100000000 - \k
+	sub	k, \m, k
+.endif
+	add	\a, \a, k		// k[i] + m[g] + a
+	add	\a, \a, f		// k[i] + m[g] + a + f
+	ror	\a, \a, #32-\s
+	add	\a, \a, \b
+.endm
+
+	/* f = b ? c : d */
+.macro	f0	f, b, c, d
+	eor	\f, \c, \d
+	and	\f, \f, \b
+	eor	\f, \f, \d
+.endm
+
+	/*
+	 * special cased round 1 function
+	 * f1 = d ? b : c = (d & b) + (~d & c)
+	 */
+.macro	round1	a, b, c, d, k, m, s
+	bic	tmp, \c, \d		// ~d & c
+.if 0x100000000 - \k > 0x00ffffff
+	movz	k, #\k & 0xffff
+	movk	k, #\k >> 16, lsl #16
+	add	k, k, \m		// k[i] + m[g]
+.elseif 0x100000000 - \k > 0x0000ffff
+	sub	k, \m, #(0x100000000 - \k) & 0xfff000
+	sub	k, k, #(0x100000000 - \k) & 0xfff
+.else
+	movz	k, #0x100000000 - \k
+	sub	k, \m, k
+.endif
+	add	\a, \a, k		// k[i] + m[g] + a
+	and	f, \b, \d		// d & b
+	add	\a, \a, tmp		// k[i] + m[g] + a + (~d & c)
+	add	\a, \a, f		// k[i] + m[g] + a + (~d & c) + (d & b)
+	ror	\a, \a, #32-\s
+	add	\a, \a, \b
+.endm
+
+	/* f = b ^ c ^ d */
+.macro	f2	f, b, c, d
+	eor	\f, \c, \d
+	eor	\f, \f, \b
+.endm
+
+	/* f = c ^ (b | ~d) */
+.macro	f3	f, b, c, d
+	orn	\f, \b, \d
+	eor	\f, \f, \c
+.endm
+
+	/* do 4 rounds */
+.macro	rounds	f, m0, m1, m2, m3, s0, s1, s2, s3, k0, k1, k2, k3
+	round	a, b, c, d, \f, \k0, \m0, \s0
+	round	d, a, b, c, \f, \k1, \m1, \s1
+	round	c, d, a, b, \f, \k2, \m2, \s2
+	round	b, c, d, a, \f, \k3, \m3, \s3
+.endm
+
+	/* do 4 rounds with f0, f1, f2, f3 */
+.macro	rounds0	m0, m1, m2, m3, k0, k1, k2, k3
+	rounds	f0, \m0, \m1, \m2, \m3, 7, 12, 17, 22, \k0, \k1, \k2, \k3
+.endm
+
+.macro	rounds1	m0, m1, m2, m3, k0, k1, k2, k3
+	round1	a, b, c, d, \k0, \m0,  5
+	round1	d, a, b, c, \k1, \m1,  9
+	round1	c, d, a, b, \k2, \m2, 14
+	round1	b, c, d, a, \k3, \m3, 20
+.endm
+
+.macro	rounds2	m0, m1, m2, m3, k0, k1, k2, k3
+	rounds	f2, \m0, \m1, \m2, \m3, 4, 11, 16, 23, \k0, \k1, \k2, \k3
+.endm
+
+.macro	rounds3	m0, m1, m2, m3, k0, k1, k2, k3
+	rounds	f3, \m0, \m1, \m2, \m3, 6, 10, 15, 21, \k0, \k1, \k2, \k3
+.endm
+
+	/* md5block(MD5_CTX, buf, len) */
 ENTRY(_libmd_md5block)
 ctx	.req	x0
 buf	.req	x1
@@ -43,104 +134,6 @@ b_	.req	m7
 c_	.req	m14
 d_	.req	m5
 
-.macro	round	a, b, c, d, f, k, m, s
-	\f	f, \b, \c, \d
-.if 0x100000000 - \k > 0x00ffffff
-	movz	k, #\k & 0xffff
-	movk	k, #\k >> 16, lsl #16
-//	ldr	k, =\k
-	add	k, k, \m		// k[i] + m[g]
-.elseif 0x100000000 - \k > 0x0000ffff
-	sub	k, \m, #(0x100000000 - \k) & 0xfff000
-	sub	k, k, #(0x100000000 - \k) & 0xfff
-.else
-	movz	k, #0x100000000 - \k
-	sub	k, \m, k
-.endif
-	add	\a, \a, k		// k[i] + m[g] + a
-	add	\a, \a, f		// k[i] + m[g] + a + f
-	ror	\a, \a, #32-\s
-	add	\a, \a, \b
-.endm
-
-	// f = b ? c : d
-.macro	f0	f, b, c, d
-	eor	\f, \c, \d
-	and	\f, \f, \b
-	eor	\f, \f, \d
-.endm
-
-	// f = d ? b : c
-.macro	f1	f, b, c, d
-	bic	tmp, \c, \d
-	and	\f, \b, \d
-	orr	\f, \f, tmp
-.endm
-
-	// special cased round 1 function
-	// f1 = d ? b : c = (d & b) + (~d & c)
-.macro	round1	a, b, c, d, k, m, s
-	bic	tmp, \c, \d		// ~d & c
-.if 0x100000000 - \k > 0x00ffffff
-	movz	k, #\k & 0xffff
-	movk	k, #\k >> 16, lsl #16
-//	ldr	k, =\k
-	add	k, k, \m		// k[i] + m[g]
-.elseif 0x100000000 - \k > 0x0000ffff
-	sub	k, \m, #(0x100000000 - \k) & 0xfff000
-	sub	k, k, #(0x100000000 - \k) & 0xfff
-.else
-	movz	k, #0x100000000 - \k
-	sub	k, \m, k
-.endif
-	add	\a, \a, k		// k[i] + m[g] + a
-	and	f, \b, \d		// d & b
-	add	\a, \a, tmp		// k[i] + m[g] + a + (~d & c)
-	add	\a, \a, f		// k[i] + m[g] + a + (~d & c) + (d & b)
-	ror	\a, \a, #32-\s
-	add	\a, \a, \b
-.endm
-
-	// f = b ^ c ^ d
-.macro	f2	f, b, c, d
-	eor	\f, \c, \d
-	eor	\f, \f, \b
-.endm
-
-	// f = c ^ (b | ~d)
-.macro	f3	f, b, c, d
-	orn	\f, \b, \d
-	eor	\f, \f, \c
-.endm
-
-	// do 4 rounds
-.macro	rounds	f, m0, m1, m2, m3, s0, s1, s2, s3, k0, k1, k2, k3
-	round	a, b, c, d, \f, \k0, \m0, \s0
-	round	d, a, b, c, \f, \k1, \m1, \s1
-	round	c, d, a, b, \f, \k2, \m2, \s2
-	round	b, c, d, a, \f, \k3, \m3, \s3
-.endm
-
-	// do 4 rounds with f0, f1, f2, f3
-.macro	rounds0	m0, m1, m2, m3, k0, k1, k2, k3
-	rounds	f0, \m0, \m1, \m2, \m3, 7, 12, 17, 22, \k0, \k1, \k2, \k3
-.endm
-
-.macro	rounds1	m0, m1, m2, m3, k0, k1, k2, k3
-	round1	a, b, c, d, \k0, \m0,  5
-	round1	d, a, b, c, \k1, \m1,  9
-	round1	c, d, a, b, \k2, \m2, 14
-	round1	b, c, d, a, \k3, \m3, 20
-.endm
-
-.macro	rounds2	m0, m1, m2, m3, k0, k1, k2, k3
-	rounds	f2, \m0, \m1, \m2, \m3, 4, 11, 16, 23, \k0, \k1, \k2, \k3
-.endm
-
-.macro	rounds3	m0, m1, m2, m3, k0, k1, k2, k3
-	rounds	f3, \m0, \m1, \m2, \m3, 6, 10, 15, 21, \k0, \k1, \k2, \k3
-.endm
-
 	stp	x19, x20, [sp, #-0x40]!
 	stp	x21, x22, [sp, #0x10]
 	stp	x23, x24, [sp, #0x20]
@@ -154,6 +147,7 @@ d_	.req	m5
 	ldp	a, b, [ctx, #0]
 	ldp	c, d, [ctx, #8]
 
+	/* first eight rounds interleaved with data loads */
 .Lloop:	ldp	m0, m1, [buf, #0]
 	round	a, b, c, d, f0, 0xd76aa478, m0,  7
 	ldp	m2, m3, [buf, #8]
@@ -172,6 +166,7 @@ d_	.req	m5
 	ldp	m14, m15, [buf, #56]
 	round	b, c, d, a, f0, 0xfd469501, m7, 22
 
+	/* remaining rounds use the roundsX macros */
 //	rounds0	 m0,  m1,  m2,  m3, 0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee
 //	rounds0	 m4,  m5,  m6,  m7, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501
 	rounds0	 m8,  m9, m10, m11, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be
