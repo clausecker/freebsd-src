@@ -5,9 +5,10 @@
  */
 
 #include <string.h>
+#include <ssp/ssp.h>
 
 void *
-memset_explicit(void *buf, int ch, size_t len)
+__ssp_real(memset_explicit)(void *buf, int ch, size_t len)
 {
 	return (memset(buf, ch, len));
 }
