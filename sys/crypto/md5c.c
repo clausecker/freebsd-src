@@ -27,6 +27,13 @@ extern void	md5block(MD5_CTX *, const void *, size_t);
 static void	md5block(MD5_CTX *, const void *, size_t);
 #endif
 
+/* don't unroll in bootloader */
+#ifdef STANDALONE_SMALL
+#define UNROLL
+#else
+#define UNROLL _Pragma("unroll")
+#endif
+
 void
 MD5Init(MD5_CTX *ctx)
 {
@@ -152,11 +159,11 @@ md5block(MD5_CTX *ctx, const void *data, size_t len)
 		size_t i;
 		uint32_t a = a0, b = b0, c = c0, d = d0, f, tmp;
 
-#		pragma unroll
+		UNROLL
 		for (i = 0; i < 16; i++)
 			m[i] = le32dec(p + 4*i);
 
-#		pragma unroll
+		UNROLL
 		for (i = 0; i < 16; i++) {
 			const int s[] = { 7, 12, 17, 22 };
 
@@ -168,7 +175,7 @@ md5block(MD5_CTX *ctx, const void *data, size_t len)
 			a = tmp;
 		}
 
-#		pragma unroll
+		UNROLL
 		for (; i < 32; i++) {
 			const int s[] = { 5, 9, 14, 20 };
 
@@ -180,7 +187,7 @@ md5block(MD5_CTX *ctx, const void *data, size_t len)
 			a = tmp;
 		}
 
-#		pragma unroll
+		UNROLL
 		for (; i < 48; i++) {
 			const int s[] = { 4, 11, 16, 23 };
 
@@ -192,7 +199,7 @@ md5block(MD5_CTX *ctx, const void *data, size_t len)
 			a = tmp;
 		}
 
-#		pragma unroll
+		UNROLL
 		for (; i < 64; i++) {
 			const int s[] = { 6, 10, 15, 21 };
 
@@ -218,7 +225,7 @@ md5block(MD5_CTX *ctx, const void *data, size_t len)
 	ctx->state[2] = c0;
 	ctx->state[3] = d0;
 }
-#endif /* defined(MD5_ASM) */
+#endif /* !defined(MD5_ASM) */
 
 #ifdef WEAK_REFS
 /* When building libmd, provide weak references. Note: this is not
