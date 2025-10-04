@@ -190,7 +190,7 @@ SRCS+=	g_eli_hmac.c pkcs5v2.c
 SRCS+=		sha256c.c sha512c.c
 
 # md5 from the kernel
-.PATH: ${SYSDIR}/kern
+.PATH: ${SYSDIR}/crypto
 SRCS+=		md5c.c
 
 .if ${DO32:U0} == 0
