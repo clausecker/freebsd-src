@@ -5,11 +5,12 @@
  */
 
 #include <sys/types.h>
+#include <sys/md5.h>
+
 #include <machine/cpufunc.h>
 #include <machine/specialreg.h>
 #include <stdint.h>
 #include <string.h>
-#include <sys/md5.h>
 #include <x86/ifunc.h>
 
 extern void _libmd_md5block_baseline(MD5_CTX *, const void *, size_t);
