@@ -164,50 +164,126 @@ md5block(MD5_CTX *ctx, const void *data, size_t len)
 			m[i] = le32dec(p + 4*i);
 
 		UNROLL
-		for (i = 0; i < 16; i++) {
-			const int s[] = { 7, 12, 17, 22 };
+		for (i = 0; i < 16; i += 4) {
+			f = d ^ (b & (c ^ d));
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i] + m[i], 7);
+			a = tmp;
 
 			f = d ^ (b & (c ^ d));
 			tmp = d;
 			d = c;
 			c = b;
-			b += rol32(a + f + K[i] + m[i], s[i % 4]);
+			b += rol32(a + f + K[i + 1] + m[i + 1], 12);
+			a = tmp;
+
+			f = d ^ (b & (c ^ d));
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 2] + m[i + 2], 17);
+			a = tmp;
+
+			f = d ^ (b & (c ^ d));
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 3] + m[i + 3], 22);
 			a = tmp;
 		}
 
 		UNROLL
-		for (; i < 32; i++) {
-			const int s[] = { 5, 9, 14, 20 };
+		for (; i < 32; i += 4) {
+			f = c ^ (d & (b ^ c));
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i] + m[(5*i + 1) % 16], 5);
+			a = tmp;
 
 			f = c ^ (d & (b ^ c));
 			tmp = d;
 			d = c;
 			c = b;
-			b += rol32(a + f + K[i] + m[(5*i + 1) % 16], s[i % 4]);
+			b += rol32(a + f + K[i + 1] + m[(5*i + 6) % 16], 9);
+			a = tmp;
+
+			f = c ^ (d & (b ^ c));
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 2] + m[(5*i + 11) % 16], 14);
+			a = tmp;
+
+			f = c ^ (d & (b ^ c));
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 3] + m[5*i % 16], 20);
 			a = tmp;
 		}
 
 		UNROLL
-		for (; i < 48; i++) {
-			const int s[] = { 4, 11, 16, 23 };
+		for (; i < 48; i += 4) {
+			f = b ^ c ^ d;
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i] + m[(3*i + 5) % 16], 4);
+			a = tmp;
 
 			f = b ^ c ^ d;
 			tmp = d;
 			d = c;
 			c = b;
-			b += rol32(a + f + K[i] + m[(3*i + 5) % 16], s[i % 4]);
+			b += rol32(a + f + K[i + 1] + m[(3*i + 8) % 16], 11);
+			a = tmp;
+
+			f = b ^ c ^ d;
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 2] + m[(3*i + 11) % 16], 16);
+			a = tmp;
+
+			f = b ^ c ^ d;
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 3] + m[(3*i + 14) % 16], 23);
 			a = tmp;
 		}
 
 		UNROLL
-		for (; i < 64; i++) {
-			const int s[] = { 6, 10, 15, 21 };
+		for (; i < 64; i += 4) {
+			f = c ^ (b | ~d);
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i] + m[7*i % 16], 6);
+			a = tmp;
 
 			f = c ^ (b | ~d);
 			tmp = d;
 			d = c;
 			c = b;
-			b += rol32(a + f + K[i] + m[7*i % 16], s[i % 4]);
+			b += rol32(a + f + K[i + 1] + m[(7*i + 7) % 16], 10);
+			a = tmp;
+
+			f = c ^ (b | ~d);
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 2] + m[(7*i + 14) % 16], 15);
+			a = tmp;
+
+			f = c ^ (b | ~d);
+			tmp = d;
+			d = c;
+			c = b;
+			b += rol32(a + f + K[i + 3] + m[(7*i + 5) % 16], 21);
 			a = tmp;
 		}
 
