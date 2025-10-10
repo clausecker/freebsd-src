@@ -7,19 +7,24 @@
 #include <sys/elf_common.h>
 #include <machine/asm.h>
 
-.macro	round	a, b, c, d, f, k, m, s
-	\f	f, \b, \c, \d
-.if 0x100000000 - \k > 0x00ffffff
-	movz	k, #\k & 0xffff
-	movk	k, #\k >> 16, lsl #16
-	add	k, k, \m		// k[i] + m[g]
-.elseif 0x100000000 - \k > 0x0000ffff
-	sub	k, \m, #(0x100000000 - \k) & 0xfff000
-	sub	k, k, #(0x100000000 - \k) & 0xfff
+# optimal instruction sequence for k = \key + \m
+.macro	addkm	key, m
+.if 0x100000000 - \key > 0x00ffffff
+	movz	k, #\key & 0xffff
+	movk	k, #\key >> 16, lsl #16
+	add	k, k, \m
+.elseif 0x100000000 - \key > 0x0000ffff
+	sub	k, \m, #(0x100000000 - \key) & 0xfff000
+	sub	k, k, #(0x100000000 - \key) & 0xfff
 .else
-	movz	k, #0x100000000 - \k
+	movz	k, #0x100000000 - \key
 	sub	k, \m, k
 .endif
+.endm
+
+.macro	round	a, b, c, d, f, key, m, s
+	\f	f, \b, \c, \d
+	addkm	\key, \m		// k[i] + m[g]
 	add	\a, \a, k		// k[i] + m[g] + a
 	add	\a, \a, f		// k[i] + m[g] + a + f
 	ror	\a, \a, #32-\s
@@ -37,19 +42,9 @@
 	 * special cased round 1 function
 	 * f1 = d ? b : c = (d & b) + (~d & c)
 	 */
-.macro	round1	a, b, c, d, k, m, s
+.macro	round1	a, b, c, d, key, m, s
 	bic	tmp, \c, \d		// ~d & c
-.if 0x100000000 - \k > 0x00ffffff
-	movz	k, #\k & 0xffff
-	movk	k, #\k >> 16, lsl #16
-	add	k, k, \m		// k[i] + m[g]
-.elseif 0x100000000 - \k > 0x0000ffff
-	sub	k, \m, #(0x100000000 - \k) & 0xfff000
-	sub	k, k, #(0x100000000 - \k) & 0xfff
-.else
-	movz	k, #0x100000000 - \k
-	sub	k, \m, k
-.endif
+	addkm	\key, \m		// k[i] + m[g]
 	add	\a, \a, k		// k[i] + m[g] + a
 	and	f, \b, \d		// d & b
 	add	\a, \a, tmp		// k[i] + m[g] + a + (~d & c)
@@ -167,8 +162,6 @@ d_	.req	m5
 	round	b, c, d, a, f0, 0xfd469501, m7, 22
 
 	/* remaining rounds use the roundsX macros */
-//	rounds0	 m0,  m1,  m2,  m3, 0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee
-//	rounds0	 m4,  m5,  m6,  m7, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501
 	rounds0	 m8,  m9, m10, m11, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be
 	rounds0	m12, m13, m14, m15, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821
 
