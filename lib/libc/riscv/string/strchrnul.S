@@ -6,13 +6,14 @@
 
 #include <machine/asm.h>
 
-.extern strlen
+        .weak   strchrnul
+        .set    strchrnul, __strchrnul
 
 /*
  * a0 - const char *str
  * a1 - int c;
  */
-ENTRY(strchrnul)
+ENTRY(__strchrnul)
 	/*
 	 * a0 - const char *ptr;
 	 * a1 - char cccccccc[8];
@@ -112,4 +113,4 @@ ENTRY(strchrnul)
 
 	add a0, a0, a2
 	ret
-END(strchrnul)
+END(__strchrnul)
