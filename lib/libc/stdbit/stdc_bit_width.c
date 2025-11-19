@@ -11,43 +11,43 @@ unsigned int
 stdc_bit_width_uc(unsigned char x)
 {
 	if (x == 0)
-		return 0;
+		return (0);
 
-	return (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x));
+	return (UINT_WIDTH - __builtin_clz(x));
 }
 
 unsigned int
 stdc_bit_width_us(unsigned short x)
 {
 	if (x == 0)
-		return 0;
+		return (0);
 
-	return (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x));
+	return (UINT_WIDTH - __builtin_clz(x));
 }
 
 unsigned int
 stdc_bit_width_ui(unsigned int x)
 {
 	if (x == 0)
-		return 0;
+		return (0);
 
-	return (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x));
+	return (UINT_WIDTH - __builtin_clz(x));
 }
 
 unsigned int
 stdc_bit_width_ul(unsigned long x)
 {
 	if (x == 0)
-		return 0;
+		return (0);
 
-	return (CHAR_BIT * sizeof(unsigned long) - __builtin_clzl(x));
+	return (ULONG_WIDTH - __builtin_clzl(x));
 }
 
 unsigned int
 stdc_bit_width_ull(unsigned long long x)
 {
 	if (x == 0)
-		return 0;
+		return (0);
 
-	return (CHAR_BIT * sizeof(unsigned long long) - __builtin_clzll(x));
+	return (ULLONG_WIDTH - __builtin_clzll(x));
 }

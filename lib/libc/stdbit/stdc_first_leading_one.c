@@ -10,7 +10,7 @@
 unsigned int
 stdc_first_leading_one_uc(unsigned char x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
+	const int offset = UINT_WIDTH - UCHAR_WIDTH;
 
 	if (x == 0)
 		return (0);
@@ -21,7 +21,7 @@ stdc_first_leading_one_uc(unsigned char x)
 unsigned int
 stdc_first_leading_one_us(unsigned short x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
+	const int offset = UINT_WIDTH - USHRT_WIDTH;
 
 	if (x == 0)
 		return (0);
