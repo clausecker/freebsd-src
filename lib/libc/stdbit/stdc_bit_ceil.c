@@ -9,7 +9,7 @@
 #include <stdbit.h>
 
 /* Ensure we don't shift 1U out of range. */
-static_assert(UCHAR_WIDTH < UINT_WIDTH),
+static_assert(UCHAR_WIDTH < UINT_WIDTH,
     "stdc_bit_ceil_uc needs UCHAR_WIDTH < UINT_WIDTH");
 
 unsigned char
