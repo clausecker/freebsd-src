@@ -8,30 +8,30 @@
 #include <limits.h>
 #include <stdbit.h>
 
-static_assert(sizeof(unsigned char) < sizeof(unsigned),
-    "stdc_leading_zeros_uc needs sizeof(unsigned char) < sizeof(unsigned)");
+static_assert(sizeof(unsigned char) < sizeof(unsigned int),
+    "stdc_leading_zeros_uc needs sizeof(unsigned char) < sizeof(unsigned int)");
 
-unsigned
+unsigned int
 stdc_leading_zeros_uc(unsigned char x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned) - sizeof(x));
+	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
 
 	return (__builtin_clz((x << offset) + (1 << (offset - 1))));
 }
 
-static_assert(sizeof(unsigned short) < sizeof(unsigned),
-    "stdc_leading_zeros_us needs sizeof(unsigned short) < sizeof(unsigned)");
+static_assert(sizeof(unsigned short) < sizeof(unsigned int),
+    "stdc_leading_zeros_us needs sizeof(unsigned short) < sizeof(unsigned int)");
 
-unsigned
+unsigned int
 stdc_leading_zeros_us(unsigned short x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned) - sizeof(x));
+	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
 
 	return (__builtin_clz((x << offset) + (1 << (offset - 1))));
 }
 
-unsigned
-stdc_leading_zeros_ui(unsigned x)
+unsigned int
+stdc_leading_zeros_ui(unsigned int x)
 {
 	if (x == 0)
 		return (sizeof(x) * CHAR_BIT);
@@ -39,7 +39,7 @@ stdc_leading_zeros_ui(unsigned x)
 	return (__builtin_clz(x));
 }
 
-unsigned
+unsigned int
 stdc_leading_zeros_ul(unsigned long x)
 {
 	if (x == 0)
@@ -48,7 +48,7 @@ stdc_leading_zeros_ul(unsigned long x)
 	return (__builtin_clzl(x));
 }
 
-unsigned
+unsigned int
 stdc_leading_zeros_ull(unsigned long long x)
 {
 	if (x == 0)

@@ -8,26 +8,26 @@
 #include <limits.h>
 #include <stdbit.h>
 
-static_assert(sizeof(unsigned char) < sizeof(unsigned),
-    "stdc_trailing_ones_uc needs sizeof(unsigned char) < sizeof(unsigned)");
+static_assert(sizeof(unsigned char) < sizeof(unsigned int),
+    "stdc_trailing_ones_uc needs sizeof(unsigned char) < sizeof(unsigned int)");
 
-unsigned
+unsigned int
 stdc_trailing_ones_uc(unsigned char x)
 {
 	return (__builtin_ctz(~x));
 }
 
-static_assert(sizeof(unsigned short) < sizeof(unsigned),
-    "stdc_trailing_ones_us needs sizeof(unsigned short) < sizeof(unsigned)");
+static_assert(sizeof(unsigned short) < sizeof(unsigned int),
+    "stdc_trailing_ones_us needs sizeof(unsigned short) < sizeof(unsigned int)");
 
-unsigned
+unsigned int
 stdc_trailing_ones_us(unsigned short x)
 {
 	return (__builtin_ctz(~x));
 }
 
-unsigned
-stdc_trailing_ones_ui(unsigned x)
+unsigned int
+stdc_trailing_ones_ui(unsigned int x)
 {
 	if (x == ~0U)
 		return (sizeof(x) * CHAR_BIT);
@@ -35,7 +35,7 @@ stdc_trailing_ones_ui(unsigned x)
 	return (__builtin_ctz(~x));
 }
 
-unsigned
+unsigned int
 stdc_trailing_ones_ul(unsigned long x)
 {
 	if (x == ~0UL)
@@ -44,7 +44,7 @@ stdc_trailing_ones_ul(unsigned long x)
 	return (__builtin_ctzl(~x));
 }
 
-unsigned
+unsigned int
 stdc_trailing_ones_ull(unsigned long long x)
 {
 	if (x == ~0ULL)

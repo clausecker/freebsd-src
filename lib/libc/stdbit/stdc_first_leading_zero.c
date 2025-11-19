@@ -7,30 +7,30 @@
 #include <limits.h>
 #include <stdbit.h>
 
-unsigned
+unsigned int
 stdc_first_leading_zero_uc(unsigned char x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned) - sizeof(x));
+	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
 
 	if (x == UCHAR_MAX)
 		return (0);
 
-	return (__builtin_clz(~(unsigned)x << offset) + 1);
+	return (__builtin_clz(~(unsigned int)x << offset) + 1);
 }
 
-unsigned
+unsigned int
 stdc_first_leading_zero_us(unsigned short x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned) - sizeof(x));
+	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
 
 	if (x == USHRT_MAX)
 		return (0);
 
-	return (__builtin_clz(~(unsigned)x << offset) + 1);
+	return (__builtin_clz(~(unsigned int)x << offset) + 1);
 }
 
-unsigned
-stdc_first_leading_zero_ui(unsigned x)
+unsigned int
+stdc_first_leading_zero_ui(unsigned int x)
 {
 	if (x == ~0U)
 		return (0);
@@ -38,7 +38,7 @@ stdc_first_leading_zero_ui(unsigned x)
 	return (__builtin_clz(~x) + 1);
 }
 
-unsigned
+unsigned int
 stdc_first_leading_zero_ul(unsigned long x)
 {
 	if (x == ~0UL)
@@ -47,7 +47,7 @@ stdc_first_leading_zero_ul(unsigned long x)
 	return (__builtin_clzl(~x) + 1);
 }
 
-unsigned
+unsigned int
 stdc_first_leading_zero_ull(unsigned long long x)
 {
 	if (x == ~0ULL)

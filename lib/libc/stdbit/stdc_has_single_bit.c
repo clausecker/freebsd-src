@@ -20,7 +20,7 @@ stdc_has_single_bit_us(unsigned short x)
 }
 
 bool
-stdc_has_single_bit_ui(unsigned x)
+stdc_has_single_bit_ui(unsigned int x)
 {
 	return (x != 0 && (x & x - 1) == 0);
 }

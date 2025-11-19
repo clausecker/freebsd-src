@@ -6,7 +6,7 @@
 
 #include <stdbit.h>
 
-unsigned
+unsigned int
 stdc_first_trailing_one_uc(unsigned char x)
 {
 	if (x == 0)
@@ -15,7 +15,7 @@ stdc_first_trailing_one_uc(unsigned char x)
 	return (__builtin_ctz(x) + 1);
 }
 
-unsigned
+unsigned int
 stdc_first_trailing_one_us(unsigned short x)
 {
 	if (x == 0)
@@ -24,8 +24,8 @@ stdc_first_trailing_one_us(unsigned short x)
 	return (__builtin_ctz(x) + 1);
 }
 
-unsigned
-stdc_first_trailing_one_ui(unsigned x)
+unsigned int
+stdc_first_trailing_one_ui(unsigned int x)
 {
 	if (x == 0)
 		return (0);
@@ -33,7 +33,7 @@ stdc_first_trailing_one_ui(unsigned x)
 	return (__builtin_ctz(x) + 1);
 }
 
-unsigned
+unsigned int
 stdc_first_trailing_one_ul(unsigned long x)
 {
 	if (x == 0)
@@ -42,7 +42,7 @@ stdc_first_trailing_one_ul(unsigned long x)
 	return (__builtin_ctzl(x) + 1);
 }
 
-unsigned
+unsigned int
 stdc_first_trailing_one_ull(unsigned long long x)
 {
 	if (x == 0)

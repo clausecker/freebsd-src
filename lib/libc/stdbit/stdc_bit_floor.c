@@ -13,7 +13,7 @@ stdc_bit_floor_uc(unsigned char x)
 	if (x == 0)
 		return (0);
 
-	return (1U << (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x) - 1));
+	return (1U << (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x) - 1));
 }
 
 unsigned short
@@ -22,16 +22,16 @@ stdc_bit_floor_us(unsigned short x)
 	if (x == 0)
 		return (0);
 
-	return (1U << (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x) - 1));
+	return (1U << (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x) - 1));
 }
 
-unsigned
-stdc_bit_floor_ui(unsigned x)
+unsigned int
+stdc_bit_floor_ui(unsigned int x)
 {
 	if (x == 0)
 		return (0);
 
-	return (1U << (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x) - 1));
+	return (1U << (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x) - 1));
 }
 
 unsigned long

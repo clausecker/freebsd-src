@@ -7,34 +7,34 @@
 #include <limits.h>
 #include <stdbit.h>
 
-unsigned
+unsigned int
 stdc_bit_width_uc(unsigned char x)
 {
 	if (x == 0)
 		return 0;
 
-	return (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x));
+	return (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x));
 }
 
-unsigned
+unsigned int
 stdc_bit_width_us(unsigned short x)
 {
 	if (x == 0)
 		return 0;
 
-	return (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x));
+	return (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x));
 }
 
-unsigned
-stdc_bit_width_ui(unsigned x)
+unsigned int
+stdc_bit_width_ui(unsigned int x)
 {
 	if (x == 0)
 		return 0;
 
-	return (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x));
+	return (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x));
 }
 
-unsigned
+unsigned int
 stdc_bit_width_ul(unsigned long x)
 {
 	if (x == 0)
@@ -43,7 +43,7 @@ stdc_bit_width_ul(unsigned long x)
 	return (CHAR_BIT * sizeof(unsigned long) - __builtin_clzl(x));
 }
 
-unsigned
+unsigned int
 stdc_bit_width_ull(unsigned long long x)
 {
 	if (x == 0)

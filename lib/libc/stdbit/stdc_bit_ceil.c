@@ -9,8 +9,8 @@
 #include <stdbit.h>
 
 /* ensure we don't shift 1U out of range */
-static_assert(sizeof(unsigned char) < sizeof(unsigned),
-    "stdc_bit_ceil_uc needs sizeof(unsigned char) < sizeof(unsigned)");
+static_assert(sizeof(unsigned char) < sizeof(unsigned int),
+    "stdc_bit_ceil_uc needs sizeof(unsigned char) < sizeof(unsigned int)");
 
 unsigned char
 stdc_bit_ceil_uc(unsigned char x)
@@ -18,12 +18,12 @@ stdc_bit_ceil_uc(unsigned char x)
 	if (x <= 1)
 		return (1);
 
-	return (1U << (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x - 1)));
+	return (1U << (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x - 1)));
 }
 
 /* ensure we don't shift 1U out of range */
-static_assert(sizeof(unsigned short) < sizeof(unsigned),
-    "stdc_bit_ceil_us needs sizeof(unsigned short) < sizeof(unsigned)");
+static_assert(sizeof(unsigned short) < sizeof(unsigned int),
+    "stdc_bit_ceil_us needs sizeof(unsigned short) < sizeof(unsigned int)");
 
 unsigned short
 stdc_bit_ceil_us(unsigned short x)
@@ -31,11 +31,11 @@ stdc_bit_ceil_us(unsigned short x)
 	if (x <= 1)
 		return (1);
 
-	return (1U << (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x - 1)));
+	return (1U << (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x - 1)));
 }
 
-unsigned
-stdc_bit_ceil_ui(unsigned x)
+unsigned int
+stdc_bit_ceil_ui(unsigned int x)
 {
 	if (x <= 1)
 		return (1);
@@ -43,7 +43,7 @@ stdc_bit_ceil_ui(unsigned x)
 	if (x > UINT_MAX/2 + 1)
 		return (0);
 
-	return (1U << (CHAR_BIT * sizeof(unsigned) - __builtin_clz(x - 1)));
+	return (1U << (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x - 1)));
 }
 
 unsigned long

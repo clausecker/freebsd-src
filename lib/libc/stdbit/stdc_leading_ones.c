@@ -8,30 +8,30 @@
 #include <limits.h>
 #include <stdbit.h>
 
-static_assert(sizeof(unsigned char) < sizeof(unsigned),
-    "stdc_leading_ones_uc needs sizeof(unsigned char) < sizeof(unsigned)");
+static_assert(sizeof(unsigned char) < sizeof(unsigned int),
+    "stdc_leading_ones_uc needs sizeof(unsigned char) < sizeof(unsigned int)");
 
-unsigned
+unsigned int
 stdc_leading_ones_uc(unsigned char x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned) - sizeof(x));
+	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
 
 	return (__builtin_clz(~(x << offset)));
 }
 
-static_assert(sizeof(unsigned short) < sizeof(unsigned),
-    "stdc_leading_ones_us needs sizeof(unsigned short) < sizeof(unsigned)");
+static_assert(sizeof(unsigned short) < sizeof(unsigned int),
+    "stdc_leading_ones_us needs sizeof(unsigned short) < sizeof(unsigned int)");
 
-unsigned
+unsigned int
 stdc_leading_ones_us(unsigned short x)
 {
-	const int offset = CHAR_BIT * (sizeof(unsigned) - sizeof(x));
+	const int offset = CHAR_BIT * (sizeof(unsigned int) - sizeof(x));
 
 	return (__builtin_clz(~(x << offset)));
 }
 
-unsigned
-stdc_leading_ones_ui(unsigned x)
+unsigned int
+stdc_leading_ones_ui(unsigned int x)
 {
 	if (x == ~0U)
 		return (sizeof(x) * CHAR_BIT);
@@ -39,7 +39,7 @@ stdc_leading_ones_ui(unsigned x)
 	return (__builtin_clz(~x));
 }
 
-unsigned
+unsigned int
 stdc_leading_ones_ul(unsigned long x)
 {
 	if (x == ~0UL)
@@ -48,7 +48,7 @@ stdc_leading_ones_ul(unsigned long x)
 	return (__builtin_clzl(~x));
 }
 
-unsigned
+unsigned int
 stdc_leading_ones_ull(unsigned long long x)
 {
 	if (x == ~0ULL)
