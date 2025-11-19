@@ -37,7 +37,7 @@ ATF_TC_BODY1(FUNCSTEM, SUFFIX, tc)
 	}
 
 	/* test all double-bit patterns */
-	for (i = 0; i < TYPE_BITS; i++)
+	for (i = 0; i < TYPE_BITS; i++) {
 		for (j = 0; j < i; j++) {
 			value = (TYPE)1 << i | (TYPE)1 << j;
 			has = FUNC(value);
@@ -45,6 +45,7 @@ ATF_TC_BODY1(FUNCSTEM, SUFFIX, tc)
 			ATF_CHECK_EQ_MSG(has, want, "%s(%#jx) == %#jx != %#jx == %s(%#jx)",
 			    __XSTRING(FUNC), (uintmax_t)value, has, want, __XSTRING(REF), (uintmax_t)value);
 		}
+	}
 
 	/* test all barber-pole patterns */
 	value = ~(TYPE)0;

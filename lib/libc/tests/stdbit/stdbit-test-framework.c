@@ -60,7 +60,6 @@
 
 ATF_TP_ADD_TCS(tp)
 {
-
 	ADD_CASE(FUNCSTEM, _uc);
 	ADD_CASE(FUNCSTEM, _us);
 	ADD_CASE(FUNCSTEM, _ui);
