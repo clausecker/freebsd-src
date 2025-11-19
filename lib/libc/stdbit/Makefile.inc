@@ -18,7 +18,7 @@ SRCS+=	stdc_bit_ceil.c \
 
 SYM_MAPS+=${LIBC_SRCTOP}/stdbit/Symbol.map
 
-MAN+=	stdc_bit_ceil.3
+MAN+=	stdc_bit_ceil.3 \
 	stdc_bit_floor.3 \
 	stdc_bit_width.3 \
 	stdc_count_ones.3 \
