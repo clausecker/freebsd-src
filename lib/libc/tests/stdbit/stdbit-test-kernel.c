@@ -16,7 +16,6 @@
 
 #define FUNC __CONCAT(FUNCSTEM, SUFFIX)
 #define REF __CONCAT(FUNCSTEM, __CONCAT(SUFFIX, _ref))
-#define TYPE_BITS (CHAR_BIT * sizeof(TYPE))
 
 MKREFFUNC(REF, TYPE)
 
@@ -28,7 +27,7 @@ ATF_TC_BODY1(FUNCSTEM, SUFFIX, tc)
 	TYPE value;
 
 	/* test all single-bit patterns */
-	for (i = 0; i < TYPE_BITS; i++) {
+	for (i = 0; i < TYPE_WIDTH; i++) {
 		value = (TYPE)1 << i;
 		has = FUNC(value);
 		want = REF(value);
@@ -37,7 +36,7 @@ ATF_TC_BODY1(FUNCSTEM, SUFFIX, tc)
 	}
 
 	/* test all double-bit patterns */
-	for (i = 0; i < TYPE_BITS; i++) {
+	for (i = 0; i < TYPE_WIDTH; i++) {
 		for (j = 0; j < i; j++) {
 			value = (TYPE)1 << i | (TYPE)1 << j;
 			has = FUNC(value);
@@ -49,7 +48,7 @@ ATF_TC_BODY1(FUNCSTEM, SUFFIX, tc)
 
 	/* test all barber-pole patterns */
 	value = ~(TYPE)0;
-	for (i = 0; i < TYPE_BITS; i++) {
+	for (i = 0; i < TYPE_WIDTH; i++) {
 		has = FUNC(value);
 		want = REF(value);
 		ATF_CHECK_EQ_MSG(has, want, "%s(%#jx) == %#jx != %#jx == %s(%#jx)",
@@ -65,6 +64,5 @@ ATF_TC_BODY1(FUNCSTEM, SUFFIX, tc)
 	}
 }
 
-#undef TYPE_BITS
 #undef REF
 #undef FUNC

@@ -27,31 +27,41 @@
 
 #define SUFFIX _uc
 #define TYPE unsigned char
+#define TYPE_WIDTH UCHAR_WIDTH
 #include "stdbit-test-kernel.c"
+#undef TYPE_WIDTH
 #undef TYPE
 #undef SUFFIX
 
 #define SUFFIX _us
 #define TYPE unsigned short
+#define TYPE_WIDTH USHRT_WIDTH
 #include "stdbit-test-kernel.c"
+#undef TYPE_WIDTH
 #undef TYPE
 #undef SUFFIX
 
 #define SUFFIX _ui
 #define TYPE unsigned int
+#define TYPE_WIDTH UINT_WIDTH
 #include "stdbit-test-kernel.c"
+#undef TYPE_WIDTH
 #undef TYPE
 #undef SUFFIX
 
 #define SUFFIX _ul
 #define TYPE unsigned long
+#define TYPE_WIDTH ULONG_WIDTH
 #include "stdbit-test-kernel.c"
+#undef TYPE_WIDTH
 #undef TYPE
 #undef SUFFIX
 
 #define SUFFIX _ull
 #define TYPE unsigned long long
+#define TYPE_WIDTH ULLONG_WIDTH
 #include "stdbit-test-kernel.c"
+#undef TYPE_WIDTH
 #undef TYPE
 #undef SUFFIX
 
