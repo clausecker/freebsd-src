@@ -8,7 +8,7 @@
 #include <limits.h>
 #include <stdbit.h>
 
-/* ensure we don't shift 1U out of range */
+/* Ensure we don't shift 1U out of range. */
 static_assert(sizeof(unsigned char) < sizeof(unsigned int),
     "stdc_bit_ceil_uc needs sizeof(unsigned char) < sizeof(unsigned int)");
 
@@ -21,7 +21,7 @@ stdc_bit_ceil_uc(unsigned char x)
 	return (1U << (CHAR_BIT * sizeof(unsigned int) - __builtin_clz(x - 1)));
 }
 
-/* ensure we don't shift 1U out of range */
+/* Ensure we don't shift 1U out of range. */
 static_assert(sizeof(unsigned short) < sizeof(unsigned int),
     "stdc_bit_ceil_us needs sizeof(unsigned short) < sizeof(unsigned int)");
 
