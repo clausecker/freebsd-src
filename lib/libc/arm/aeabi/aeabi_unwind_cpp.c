@@ -27,6 +27,8 @@
  *
  */
 
+#include <sys/param.h>
+
 /*
  * Provide an implementation of __aeabi_unwind_cpp_pr{0,1,2}. These are
  * required by libc but are implemented in libgcc_eh.a which we don't link
