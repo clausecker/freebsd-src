@@ -23,7 +23,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd February 15, 2025
+.Dd April 18, 2026
 .Dt SOUND 4
 .Os
 .Sh NAME
@@ -270,6 +270,14 @@ for Linux applications, and deny for everything else.
 .It 1
 Always allow PROT_EXEC page mappings.
 .El
+.It Va hw.snd.default.*
+Default mixer device volumes for newly attached devices,
+see
+.Xr mixer 8 .
+On attachment of a new
+.Xr snd 4
+device, the volume in the range 0\(en100 is applied to
+both left and right channel of the given mixer device.
 .It Va hw.snd.default_auto
 Automatically assign the default sound unit.
 The following values are supported (default is 1):

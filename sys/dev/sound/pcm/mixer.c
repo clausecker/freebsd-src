@@ -87,6 +87,40 @@ static u_int16_t snd_mixerdefaults[SOUND_MIXER_NRDEVICES] = {
 
 static char* snd_mixernames[SOUND_MIXER_NRDEVICES] = SOUND_DEVICE_NAMES;
 
+static SYSCTL_NODE(_hw_snd, OID_AUTO, default, CTLFLAG_RD | CTLFLAG_MPSAFE, NULL,
+    "default settings for newly attached mixer devices");
+
+static int handle_percent(SYSCTL_HANDLER_ARGS);
+
+#define MIXERDEFAULT_SYSCTL(name, i, desc) \
+	SYSCTL_PROC(_hw_snd_default, OID_AUTO, name, CTLTYPE_U16 | CTLFLAG_RW | CTLFLAG_MPSAFE, \
+	&snd_mixerdefaults[i], 0, handle_percent, "SU", desc)
+MIXERDEFAULT_SYSCTL(vol,	SOUND_MIXER_VOLUME,	"default master output level");
+MIXERDEFAULT_SYSCTL(bass,	SOUND_MIXER_BASS,	"default bass level");
+MIXERDEFAULT_SYSCTL(treble,	SOUND_MIXER_TREBLE,	"default treble level");
+MIXERDEFAULT_SYSCTL(synth,	SOUND_MIXER_SYNTH,	"default synthesizer input volume");
+MIXERDEFAULT_SYSCTL(pcm,	SOUND_MIXER_PCM,	"default audio device output volume level");
+MIXERDEFAULT_SYSCTL(speaker,	SOUND_MIXER_SPEAKER,	"default PC speaker volume level");
+MIXERDEFAULT_SYSCTL(line,	SOUND_MIXER_LINE,	"default line volume level");
+MIXERDEFAULT_SYSCTL(mic,	SOUND_MIXER_MIC,	"default microphone jack volume");
+MIXERDEFAULT_SYSCTL(cd,		SOUND_MIXER_CD,		"default CD audio input jack volume");
+MIXERDEFAULT_SYSCTL(mix,	SOUND_MIXER_IMIX,	"default recording monitor output volume");
+MIXERDEFAULT_SYSCTL(pcm2,	SOUND_MIXER_ALTPCM,	"default alternative codec device volume");
+MIXERDEFAULT_SYSCTL(rec,	SOUND_MIXER_RECLEV,	"default global recording level");
+MIXERDEFAULT_SYSCTL(igain,	SOUND_MIXER_IGAIN,	"default input gain");
+MIXERDEFAULT_SYSCTL(ogain,	SOUND_MIXER_OGAIN,	"default output gain");
+MIXERDEFAULT_SYSCTL(line1,	SOUND_MIXER_LINE1,	"default input source 1 (aux1) line level");
+MIXERDEFAULT_SYSCTL(line2,	SOUND_MIXER_LINE2,	"default input source 2 (aux2) line level");
+MIXERDEFAULT_SYSCTL(line3,	SOUND_MIXER_LINE3,	"default input source 3 (line) line level");
+MIXERDEFAULT_SYSCTL(dig1,	SOUND_MIXER_DIGITAL1,	"default digital input 1 volume");
+MIXERDEFAULT_SYSCTL(dig2,	SOUND_MIXER_DIGITAL2,	"default digital input 2 volume");
+MIXERDEFAULT_SYSCTL(dig3,	SOUND_MIXER_DIGITAL3,	"default digital input 3 volume");
+MIXERDEFAULT_SYSCTL(phin,	SOUND_MIXER_PHONEIN,	"default phone input volume");
+MIXERDEFAULT_SYSCTL(phout,	SOUND_MIXER_PHONEOUT,	"default phone output volume");
+MIXERDEFAULT_SYSCTL(video,	SOUND_MIXER_VIDEO,	"default video/TV (audio) input volume");
+MIXERDEFAULT_SYSCTL(radio,	SOUND_MIXER_RADIO,	"default radio input volume");
+MIXERDEFAULT_SYSCTL(monitor,	SOUND_MIXER_MONITOR,	"default monitor (usually mic) volume");
+
 static d_open_t mixer_open;
 static d_close_t mixer_close;
 static d_ioctl_t mixer_ioctl;
@@ -132,6 +166,31 @@ mixer_lookup(char *devname)
 	if ((y) != 0)							\
 		mtx_lock(&(x)->lock);					\
 } while (0)
+
+/*
+ * Handle sysctls that set an uint16_t to a value between 0 and 100.
+ */
+static int
+handle_percent(SYSCTL_HANDLER_ARGS)
+{
+	uint16_t tmpin;
+	int error = 0;
+
+	error = SYSCTL_OUT(req, arg1, sizeof(uint16_t));
+	if (error || !req->newptr)
+		return (error);
+
+	error = SYSCTL_IN(req, &tmpin, sizeof(tmpin));
+	if (error)
+		return (error);
+
+	if (tmpin > 100)
+		return (EINVAL);
+
+	*(uint16_t *)arg1 = tmpin;
+
+	return (0);
+}
 
 static int
 mixer_set_softpcmvol(struct snd_mixer *m, struct snddev_info *d,
@@ -1525,3 +1584,4 @@ mixer_get_lock(struct snd_mixer *m)
 {
 	return (&m->lock);
 }
+
